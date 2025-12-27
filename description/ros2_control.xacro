@@ -41,26 +41,31 @@
       <joint name="left_elbow_joint">
         <command_interface name="position"/>
         <state_interface name="position"/>
+        <state_interface name="velocity"/>
       </joint>
       <joint name="right_elbow_joint">
         <command_interface name="position"/>
         <state_interface name="position"/>
+        <state_interface name="velocity"/>
       </joint>
       
       <!-- Neck -->
       <joint name="neck_yaw_joint">
         <command_interface name="position"/>
         <state_interface name="position"/>
+        <state_interface name="velocity"/>
       </joint>
       
       <!-- Grippers - Primary fingers -->
       <joint name="left_gripper_finger1_joint">
         <command_interface name="position"/>
         <state_interface name="position"/>
+        <state_interface name="velocity"/>
       </joint>
       <joint name="right_gripper_finger1_joint">
         <command_interface name="position"/>
         <state_interface name="position"/>
+        <state_interface name="velocity"/>
       </joint>
       
       <!-- Grippers - Mimic fingers -->
@@ -69,12 +74,14 @@
         <param name="multiplier">-1</param>
         <command_interface name="position"/>
         <state_interface name="position"/>
+        <state_interface name="velocity"/>
       </joint>
       <joint name="right_gripper_finger2_joint">
         <param name="mimic">right_gripper_finger1_joint</param>
         <param name="multiplier">-1</param>
         <command_interface name="position"/>
         <state_interface name="position"/>
+        <state_interface name="velocity"/>
       </joint>
     </ros2_control>
 
@@ -136,12 +143,14 @@
         <param name="min">0</param>  <!-- -45 degrees -->
         <param name="max">0.873</param>  <!-- 180 degrees -->
         <state_interface name="position"/>
+        <state_interface name="velocity"/>
       </joint>
       <joint name="right_elbow_joint">
         <command_interface name="position"/>
         <param name="min">0</param>  <!-- -45 degrees -->
         <param name="max">0.873</param>  <!-- 180 degrees -->
         <state_interface name="position"/>
+        <state_interface name="velocity"/>
       </joint>
       
       <!-- Neck -->
@@ -150,6 +159,7 @@
         <param name="min">-1.571</param>  <!-- -45 degrees -->
         <param name="max">1.571</param>  <!-- 180 degrees -->
         <state_interface name="position"/>
+        <state_interface name="velocity"/>
       </joint>
       
       <!-- Grippers - Primary fingers -->
@@ -158,12 +168,14 @@
         <param name="min">-0.785</param>  <!-- -45 degrees -->
         <param name="max">1.047</param>  <!-- 60 degrees -->
         <state_interface name="position"/>
+        <state_interface name="velocity"/>
       </joint>
       <joint name="right_gripper_finger1_joint">
         <command_interface name="position"/>
         <param name="min">-0.785</param>  <!-- -45 degrees -->
         <param name="max">1.047</param>  <!-- 60 degrees -->
         <state_interface name="position"/>
+        <state_interface name="velocity"/>
       </joint>
     </ros2_control>
   </xacro:unless>
