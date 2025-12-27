@@ -1,0 +1,237 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <!-- All properties and materials are now defined in robot_core.xacro -->
+
+
+
+    <!-- BODY LINK -->
+    <joint name="body_joint" type="fixed">
+        <parent link="chassis"/>
+        <child link="body"/>
+        <!-- Position body on top of chassis -->
+        <origin xyz="0 0 0.196" rpy="0 0 0"/>
+    </joint>
+
+    <link name="body">
+        <visual>
+            <origin xyz="0 0 ${body_height/2}" rpy="0 0 0"/>
+            <geometry>
+                <box size="${body_length} ${body_width} ${body_height}"/>
+            </geometry>
+            <material name="grey"/>
+        </visual>
+        <collision>
+            <origin xyz="0 0 ${body_height/2}" rpy="0 0 0"/>
+            <geometry>
+                <box size="${body_length} ${body_width} ${body_height}"/>
+            </geometry>
+        </collision>
+        <xacro:inertial_box mass="${body_mass}" x="${body_length}" y="${body_width}" z="${body_height}">
+            <origin xyz="0 0 ${body_height/2}" rpy="0 0 0"/>
+        </xacro:inertial_box>
+    </link>
+
+    <gazebo reference="body">
+        <material>Gazebo/Grey</material>
+    </gazebo>
+
+
+    <!-- LEFT ARM -->
+    
+    <!-- Left Shoulder Pitch Joint -->
+    <joint name="left_shoulder_pitch_joint" type="revolute">
+        <parent link="body"/>
+        <child link="left_shoulder"/>
+        <origin xyz="0 ${body_width/2 + shoulder_radius} ${body_height * 0.944444}" rpy="0 0 0"/>
+        <axis xyz="0 -1 0"/>
+        <limit lower="-0.785" upper="3.14" effort="10.0" velocity="2.0"/>
+        <dynamics damping="10.0" friction="2.0"/>
+    </joint>
+
+    <link name="left_shoulder">
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <sphere radius="${shoulder_radius}"/>
+            </geometry>
+            <material name="dark_grey"/>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <sphere radius="${shoulder_radius}"/>
+            </geometry>
+        </collision>
+        <xacro:inertial_sphere mass="${shoulder_mass}" radius="${shoulder_radius}">
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+        </xacro:inertial_sphere>
+    </link>
+
+    <gazebo reference="left_shoulder">
+        <material>Gazebo/DarkGrey</material>
+    </gazebo>
+
+    <!-- Left Upper Arm -->
+    <joint name="left_upper_arm_joint" type="fixed">
+        <parent link="left_shoulder"/>
+        <child link="left_upper_arm"/>
+        <origin xyz="0 0 -${upper_arm_length/2}" rpy="0 0 0"/>
+    </joint>
+
+    <link name="left_upper_arm">
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <cylinder radius="${upper_arm_radius}" length="${upper_arm_length}"/>
+            </geometry>
+            <material name="light_grey"/>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <cylinder radius="${upper_arm_radius}" length="${upper_arm_length}"/>
+            </geometry>
+        </collision>
+        <xacro:inertial_cylinder mass="${upper_arm_mass}" length="${upper_arm_length}" radius="${upper_arm_radius}">
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+        </xacro:inertial_cylinder>
+    </link>
+
+    <gazebo reference="left_upper_arm">
+        <material>Gazebo/LightGrey</material>
+    </gazebo>
+
+    <!-- Left Elbow Joint -->
+    <joint name="left_elbow_joint" type="revolute">
+        <parent link="left_upper_arm"/>
+        <child link="left_forearm"/>
+        <origin xyz="0 0 -${upper_arm_length/2}" rpy="0 0 0"/>
+        <axis xyz="0 -1 0"/>
+        <limit lower="0" upper="0.873" effort="5.0" velocity="2.0"/>
+        <dynamics damping="10.0" friction="2.0"/>
+    </joint>
+
+    <link name="left_forearm">
+        <visual>
+            <origin xyz="0 0 -${forearm_length/2}" rpy="0 0 0"/>
+            <geometry>
+                <cylinder radius="${forearm_radius}" length="${forearm_length}"/>
+            </geometry>
+            <material name="light_grey"/>
+        </visual>
+        <collision>
+            <origin xyz="0 0 -${forearm_length/2}" rpy="0 0 0"/>
+            <geometry>
+                <cylinder radius="${forearm_radius}" length="${forearm_length}"/>
+            </geometry>
+        </collision>
+        <xacro:inertial_cylinder mass="${forearm_mass}" length="${forearm_length}" radius="${forearm_radius}">
+            <origin xyz="0 0 -${forearm_length/2}" rpy="0 0 0"/>
+        </xacro:inertial_cylinder>
+    </link>
+
+    <gazebo reference="left_forearm">
+        <material>Gazebo/LightGrey</material>
+    </gazebo>
+
+
+    <!-- RIGHT ARM -->
+    
+    <!-- Right Shoulder Pitch Joint -->
+    <joint name="right_shoulder_pitch_joint" type="revolute">
+        <parent link="body"/>
+        <child link="right_shoulder"/>
+        <origin xyz="0 ${-(body_width/2 + shoulder_radius)} ${body_height * 0.944444}" rpy="0 0 0"/>
+        <axis xyz="0 -1 0"/>
+        <limit lower="-0.785" upper="3.14" effort="10.0" velocity="2.0"/>
+        <dynamics damping="10.0" friction="2.0"/>
+    </joint>
+
+    <link name="right_shoulder">
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <sphere radius="${shoulder_radius}"/>
+            </geometry>
+            <material name="dark_grey"/>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <sphere radius="${shoulder_radius}"/>
+            </geometry>
+        </collision>
+        <xacro:inertial_sphere mass="${shoulder_mass}" radius="${shoulder_radius}">
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+        </xacro:inertial_sphere>
+    </link>
+
+    <gazebo reference="right_shoulder">
+        <material>Gazebo/DarkGrey</material>
+    </gazebo>
+
+    <!-- Right Upper Arm -->
+    <joint name="right_upper_arm_joint" type="fixed">
+        <parent link="right_shoulder"/>
+        <child link="right_upper_arm"/>
+        <origin xyz="0 0 -${upper_arm_length/2}" rpy="0 0 0"/>
+    </joint>
+
+    <link name="right_upper_arm">
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <cylinder radius="${upper_arm_radius}" length="${upper_arm_length}"/>
+            </geometry>
+            <material name="light_grey"/>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <cylinder radius="${upper_arm_radius}" length="${upper_arm_length}"/>
+            </geometry>
+        </collision>
+        <xacro:inertial_cylinder mass="${upper_arm_mass}" length="${upper_arm_length}" radius="${upper_arm_radius}">
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+        </xacro:inertial_cylinder>
+    </link>
+
+    <gazebo reference="right_upper_arm">
+        <material>Gazebo/LightGrey</material>
+    </gazebo>
+
+    <!-- Right Elbow Joint -->
+    <joint name="right_elbow_joint" type="revolute">
+        <parent link="right_upper_arm"/>
+        <child link="right_forearm"/>
+        <origin xyz="0 0 -${upper_arm_length/2}" rpy="0 0 0"/>
+        <axis xyz="0 -1 0"/>
+        <limit lower="0" upper="0.873" effort="5.0" velocity="2.0"/>
+        <dynamics damping="10.0" friction="2.0"/>
+    </joint>
+
+    <link name="right_forearm">
+        <visual>
+            <origin xyz="0 0 -${forearm_length/2}" rpy="0 0 0"/>
+            <geometry>
+                <cylinder radius="${forearm_radius}" length="${forearm_length}"/>
+            </geometry>
+            <material name="light_grey"/>
+        </visual>
+        <collision>
+            <origin xyz="0 0 -${forearm_length/2}" rpy="0 0 0"/>
+            <geometry>
+                <cylinder radius="${forearm_radius}" length="${forearm_length}"/>
+            </geometry>
+        </collision>
+        <xacro:inertial_cylinder mass="${forearm_mass}" length="${forearm_length}" radius="${forearm_radius}">
+            <origin xyz="0 0 -${forearm_length/2}" rpy="0 0 0"/>
+        </xacro:inertial_cylinder>
+    </link>
+
+    <gazebo reference="right_forearm">
+        <material>Gazebo/LightGrey</material>
+    </gazebo>
+
+</robot>

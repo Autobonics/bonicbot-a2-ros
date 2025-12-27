@@ -1,0 +1,74 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 50
+
+    diff_cont:
+      type: diff_drive_controller/DiffDriveController
+
+    joint_broad:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    # Humanoid controllers
+    left_arm_controller:
+      type: position_controllers/JointGroupPositionController
+      
+    right_arm_controller:
+      type: position_controllers/JointGroupPositionController
+    
+    head_controller:
+      type: position_controllers/JointGroupPositionController
+    
+    left_gripper_controller:
+      type: position_controllers/JointGroupPositionController
+    
+    right_gripper_controller:
+      type: position_controllers/JointGroupPositionController
+
+diff_cont:
+  ros__parameters:
+
+    publish_rate: 50.0
+
+    base_frame_id: base_link
+
+    left_wheel_names: ['left_wheel_joint']
+    right_wheel_names: ['right_wheel_joint']
+    wheel_separation: 0.2895
+    wheel_radius: 0.06
+
+    use_stamped_vel: false
+
+
+    
+# Humanoid controller parameters
+left_arm_controller:
+  ros__parameters:
+    joints:
+      - left_shoulder_pitch_joint
+      - left_elbow_joint
+    interface_name: position
+
+right_arm_controller:
+  ros__parameters:
+    joints:
+      - right_shoulder_pitch_joint
+      - right_elbow_joint
+    interface_name: position
+
+head_controller:
+  ros__parameters:
+    joints:
+      - neck_yaw_joint
+    interface_name: position
+
+left_gripper_controller:
+  ros__parameters:
+    joints:
+      - left_gripper_finger1_joint
+    interface_name: position
+
+right_gripper_controller:
+  ros__parameters:
+    joints:
+      - right_gripper_finger1_joint
+    interface_name: position

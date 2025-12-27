@@ -1,0 +1,208 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <!-- All properties are now defined in robot_core.xacro -->
+
+
+    <!-- LEFT GRIPPER ASSEMBLY -->
+    
+    <!-- Left Gripper Joint -->
+    <joint name="left_gripper_joint" type="fixed">
+        <parent link="left_forearm"/>
+        <child link="left_gripper_palm"/>
+        <origin xyz="0 0 -${forearm_length}" rpy="0 0 1.571"/>
+    </joint>
+
+    <!-- Left Gripper Palm -->
+    <link name="left_gripper_palm">
+        <visual>
+            <origin xyz="0 0 -${gripper_palm_length/2}" rpy="0 0 0"/>
+            <geometry>
+                <box size="${gripper_palm_width} ${gripper_palm_height} ${gripper_palm_length}"/>
+            </geometry>
+            <material name="dark_grey"/>
+        </visual>
+        <collision>
+            <origin xyz="0 0 -${gripper_palm_length/2}" rpy="0 0 0"/>
+            <geometry>
+                <box size="${gripper_palm_width} ${gripper_palm_height} ${gripper_palm_length}"/>
+            </geometry>
+        </collision>
+        <xacro:inertial_box mass="${gripper_palm_mass}" x="${gripper_palm_width}" y="${gripper_palm_height}" z="${gripper_palm_length}">
+            <origin xyz="0 0 -${gripper_palm_length/2}" rpy="0 0 0"/>
+        </xacro:inertial_box>
+    </link>
+
+    <gazebo reference="left_gripper_palm">
+        <material>Gazebo/DarkGrey</material>
+    </gazebo>
+
+    <!-- Left Gripper Finger 1 (revolute joint for opening/closing) -->
+    <joint name="left_gripper_finger1_joint" type="revolute">
+        <parent link="left_gripper_palm"/>
+        <child link="left_gripper_finger1"/>
+        <origin xyz="${gripper_palm_width/2} 0 -${gripper_palm_length}" rpy="0 0 0"/>
+        <axis xyz="0 1 0"/>
+        <limit lower="-0.785" upper="1.047" effort="1.0" velocity="0.5"/>
+        <dynamics damping="3.0" friction="1.0"/>
+    </joint>
+
+    <link name="left_gripper_finger1">
+        <visual>
+            <origin xyz="${gripper_finger_width/2} 0 -${gripper_finger_length/2}" rpy="0 0 0"/>
+            <geometry>
+                <box size="${gripper_finger_width} ${gripper_finger_height} ${gripper_finger_length}"/>
+            </geometry>
+            <material name="light_grey"/>
+        </visual>
+        <collision>
+            <origin xyz="${gripper_finger_width/2} 0 -${gripper_finger_length/2}" rpy="0 0 0"/>
+            <geometry>
+                <box size="${gripper_finger_width} ${gripper_finger_height} ${gripper_finger_length}"/>
+            </geometry>
+        </collision>
+        <xacro:inertial_box mass="${gripper_finger_mass}" x="${gripper_finger_width}" y="${gripper_finger_height}" z="${gripper_finger_length}">
+            <origin xyz="${gripper_finger_width/2} 0 -${gripper_finger_length/2}" rpy="0 0 0"/>
+        </xacro:inertial_box>
+    </link>
+
+    <gazebo reference="left_gripper_finger1">
+        <material>Gazebo/Grey</material>
+    </gazebo>
+
+    <!-- Left Gripper Finger 2 (mimic finger 1) -->
+    <joint name="left_gripper_finger2_joint" type="revolute">
+        <parent link="left_gripper_palm"/>
+        <child link="left_gripper_finger2"/>
+        <origin xyz="-${gripper_palm_width/2} 0 -${gripper_palm_length}" rpy="0 0 0"/>
+        <axis xyz="0 1 0"/>
+        <limit lower="-1.047" upper="0.785" effort="1.0" velocity="0.5"/>
+        <dynamics damping="3.0" friction="1.0"/>
+        <mimic joint="left_gripper_finger1_joint" multiplier="-1"/>
+    </joint>
+
+    <link name="left_gripper_finger2">
+        <visual>
+            <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2}" rpy="0 0 0"/>
+            <geometry>
+                <box size="${gripper_finger_width} ${gripper_finger_height} ${gripper_finger_length}"/>
+            </geometry>
+            <material name="light_grey"/>
+        </visual>
+        <collision>
+            <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2}" rpy="0 0 0"/>
+            <geometry>
+                <box size="${gripper_finger_width} ${gripper_finger_height} ${gripper_finger_length}"/>
+            </geometry>
+        </collision>
+        <xacro:inertial_box mass="${gripper_finger_mass}" x="${gripper_finger_width}" y="${gripper_finger_height}" z="${gripper_finger_length}">
+            <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2}" rpy="0 0 0"/>
+        </xacro:inertial_box>
+    </link>
+
+    <gazebo reference="left_gripper_finger2">
+        <material>Gazebo/Grey</material>
+    </gazebo>
+
+
+    <!-- RIGHT GRIPPER ASSEMBLY -->
+    
+    <!-- Right Gripper Joint -->
+    <joint name="right_gripper_joint" type="fixed">
+        <parent link="right_forearm"/>
+        <child link="right_gripper_palm"/>
+        <origin xyz="0 0 -${forearm_length}" rpy="0 0 1.571"/>
+    </joint>
+
+    <!-- Right Gripper Palm -->
+    <link name="right_gripper_palm">
+        <visual>
+            <origin xyz="0 0 -${gripper_palm_length/2}" rpy="0 0 0"/>
+            <geometry>
+                <box size="${gripper_palm_width} ${gripper_palm_height} ${gripper_palm_length}"/>
+            </geometry>
+            <material name="dark_grey"/>
+        </visual>
+        <collision>
+            <origin xyz="0 0 -${gripper_palm_length/2}" rpy="0 0 0"/>
+            <geometry>
+                <box size="${gripper_palm_width} ${gripper_palm_height} ${gripper_palm_length}"/>
+            </geometry>
+        </collision>
+        <xacro:inertial_box mass="${gripper_palm_mass}" x="${gripper_palm_width}" y="${gripper_palm_height}" z="${gripper_palm_length}">
+            <origin xyz="0 0 -${gripper_palm_length/2}" rpy="0 0 0"/>
+        </xacro:inertial_box>
+    </link>
+
+    <gazebo reference="right_gripper_palm">
+        <material>Gazebo/DarkGrey</material>
+    </gazebo>
+
+    <!-- Right Gripper Finger 1 -->
+    <joint name="right_gripper_finger1_joint" type="revolute">
+        <parent link="right_gripper_palm"/>
+        <child link="right_gripper_finger1"/>
+        <origin xyz="${gripper_palm_width/2} 0 -${gripper_palm_length}" rpy="0 0 0"/>
+        <axis xyz="0 1 0"/>
+        <limit lower="-0.785" upper="1.047" effort="1.0" velocity="0.5"/>
+        <dynamics damping="3.0" friction="1.0"/>
+    </joint>
+
+    <link name="right_gripper_finger1">
+        <visual>
+            <origin xyz="${gripper_finger_width/2} 0 -${gripper_finger_length/2}" rpy="0 0 0"/>
+            <geometry>
+                <box size="${gripper_finger_width} ${gripper_finger_height} ${gripper_finger_length}"/>
+            </geometry>
+            <material name="light_grey"/>
+        </visual>
+        <collision>
+            <origin xyz="${gripper_finger_width/2} 0 -${gripper_finger_length/2}" rpy="0 0 0"/>
+            <geometry>
+                <box size="${gripper_finger_width} ${gripper_finger_height} ${gripper_finger_length}"/>
+            </geometry>
+        </collision>
+        <xacro:inertial_box mass="${gripper_finger_mass}" x="${gripper_finger_width}" y="${gripper_finger_height}" z="${gripper_finger_length}">
+            <origin xyz="${gripper_finger_width/2} 0 -${gripper_finger_length/2}" rpy="0 0 0"/>
+        </xacro:inertial_box>
+    </link>
+
+    <gazebo reference="right_gripper_finger1">
+        <material>Gazebo/Grey</material>
+    </gazebo>
+
+    <!-- Right Gripper Finger 2 (mimic finger 1) -->
+    <joint name="right_gripper_finger2_joint" type="revolute">
+        <parent link="right_gripper_palm"/>
+        <child link="right_gripper_finger2"/>
+        <origin xyz="-${gripper_palm_width/2} 0 -${gripper_palm_length}" rpy="0 0 0"/>
+        <axis xyz="0 1 0"/>
+        <limit lower="-1.047" upper="0.785" effort="1.0" velocity="0.5"/>
+        <dynamics damping="3.0" friction="1.0"/>
+        <mimic joint="right_gripper_finger1_joint" multiplier="-1"/>
+    </joint>
+
+    <link name="right_gripper_finger2">
+        <visual>
+            <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2}" rpy="0 0 0"/>
+            <geometry>
+                <box size="${gripper_finger_width} ${gripper_finger_height} ${gripper_finger_length}"/>
+            </geometry>
+            <material name="light_grey"/>
+        </visual>
+        <collision>
+            <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2}" rpy="0 0 0"/>
+            <geometry>
+                <box size="${gripper_finger_width} ${gripper_finger_height} ${gripper_finger_length}"/>
+            </geometry>
+        </collision>
+        <xacro:inertial_box mass="${gripper_finger_mass}" x="${gripper_finger_width}" y="${gripper_finger_height}" z="${gripper_finger_length}">
+            <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2}" rpy="0 0 0"/>
+        </xacro:inertial_box>
+    </link>
+
+    <gazebo reference="right_gripper_finger2">
+        <material>Gazebo/Grey</material>
+    </gazebo>
+
+</robot>
