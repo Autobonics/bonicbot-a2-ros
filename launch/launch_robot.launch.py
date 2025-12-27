@@ -50,7 +50,7 @@ def generate_launch_description():
     )
     
     # Delay controller manager to ensure robot_state_publisher is ready
-    delayed_controller_manager = TimerAction(period=3.0, actions=[controller_manager])
+    delayed_controller_manager = TimerAction(period=5.0, actions=[controller_manager])
     
     # Diff Drive Controller Spawner
     diff_drive_spawner = Node(
