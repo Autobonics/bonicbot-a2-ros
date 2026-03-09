@@ -421,23 +421,36 @@ hardware_interface::return_type DiffBotSystemHardware::read(
   // ========== READ IMU at ~10 Hz (every 5 cycles) ==========
   // ESP32 responds with RESP_IMU (0x15): 24 bytes = 6 floats (ax, ay, az, gx, gy, gz)
   imu_update_counter_++;
-  if (imu_update_counter_ >= 5)  // 50 Hz / 5 = 10 Hz
+  if (imu_update_counter_ >= 2)  // ~20 Hz loop / 2 = ~10 Hz IMU
   {
     imu_update_counter_ = 0;
     imu_data_ready_ = false;
 
     if (sendPacket(uart_protocol::CMD_IMU_REQ, nullptr, 0))
     {
-      // Non-blocking wait — same pattern as encoders
+      // Drain all available bytes per iteration — RESP_IMU is 30 bytes.
+      // Old pattern (1 byte per 2ms sleep) hit 50ms timeout before all 30 bytes
+      // were processed (25 iterations × 1 byte = 25 bytes < 30 needed).
+      // Fix: tight inner loop drains the buffer, sleep only when buffer is empty.
       auto imu_start = std::chrono::steady_clock::now();
       while (!imu_data_ready_)
       {
-        receivePacket();
+        // Drain every byte currently in the UART buffer without sleeping
+        int bytes_avail = 0;
+        ioctl(serial_fd_, FIONREAD, &bytes_avail);
+        if (bytes_avail > 0)
+        {
+          for (int b = 0; b < bytes_avail && !imu_data_ready_; b++)
+            receivePacket();
+        }
+        else
+        {
+          std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::steady_clock::now() - imu_start).count();
-        if (elapsed > 50)  // 50 ms timeout (generous for 10 Hz)
+        if (elapsed > 100)  // 100ms timeout matches encoder pattern
           break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(2));
       }
 
       if (imu_data_ready_ && imu_publisher_)
