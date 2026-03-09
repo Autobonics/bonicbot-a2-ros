@@ -15,6 +15,7 @@
   <depend>rclcpp</depend>
   <depend>rclcpp_lifecycle</depend>
   <depend>sensor_msgs</depend>
+  <exec_depend>robot_localization</exec_depend>
   
   <!-- Python dependencies -->
   <depend>rclpy</depend>

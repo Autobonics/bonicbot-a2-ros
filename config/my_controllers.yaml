@@ -38,6 +38,18 @@ diff_cont:
 
     use_stamped_vel: false
 
+    # Disable TF publishing — EKF (robot_localization) publishes odom→base_link
+    # Having both publish TF causes a conflict
+    enable_odom_tf: false
+
+    # Covariance diagonals [x, y, z, roll, pitch, yaw]
+    # Without these, diff_cont publishes zeros → EKF treats wheel odom as perfect truth
+    # and completely ignores the IMU gyroscope.
+    # twist vyaw = 0.05 >> IMU angular_velocity_covariance = 0.001
+    # → EKF trusts IMU gz much more than wheel-derived yaw rate ← key for slip rejection
+    pose_covariance_diagonal:  [0.001, 0.001, 0.001, 0.001, 0.001, 0.05]
+    twist_covariance_diagonal: [0.001, 0.001, 0.001, 0.001, 0.001, 0.05]
+
 
     
 # Humanoid controller parameters

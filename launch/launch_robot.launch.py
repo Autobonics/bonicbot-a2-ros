@@ -133,6 +133,17 @@ def generate_launch_description():
     #     )])
     # )
 
+    # ===== EKF Node (robot_localization) =====
+    # Fuses /diff_cont/odom + /imu/data → /odometry/filtered
+    # Also publishes odom → base_footprint TF (diff_cont TF is disabled)
+    ekf_node = Node(
+        package='robot_localization',
+        executable='ekf_node',
+        name='ekf_filter_node',
+        output='screen',
+        parameters=[os.path.join(get_package_share_directory(package_name), 'config', 'ekf.yaml')]
+    )
+
     return LaunchDescription([
         rsp,
         joystick,
@@ -141,5 +152,6 @@ def generate_launch_description():
         delayed_diff_drive_spawner,
         delayed_joint_broad_spawner,
         delayed_servo_spawners,
+        ekf_node,
         # rplidar
     ])
