@@ -1,7 +1,7 @@
 ekf_filter_node:
   ros__parameters:
 
-    frequency: 30.0
+    frequency: 15.0        # 15 Hz — warnings only during startup, fine for Pi
     sensor_timeout: 0.1
     two_d_mode: true
 

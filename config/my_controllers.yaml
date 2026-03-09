@@ -48,7 +48,7 @@ diff_cont:
     # twist vyaw = 0.05 >> IMU angular_velocity_covariance = 0.001
     # → EKF trusts IMU gz much more than wheel-derived yaw rate ← key for slip rejection
     pose_covariance_diagonal:  [0.001, 0.001, 0.001, 0.001, 0.001, 0.05]
-    twist_covariance_diagonal: [0.001, 0.001, 0.001, 0.001, 0.001, 0.05]
+    twist_covariance_diagonal: [0.001, 0.001, 0.001, 0.001, 0.001, 0.02]
 
 
     
