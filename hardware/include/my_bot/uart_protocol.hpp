@@ -24,6 +24,7 @@ constexpr uint8_t CMD_STOP               = 0x07;
 constexpr uint8_t CMD_SERVO_CONTROL      = 0x08;
 constexpr uint8_t CMD_SERVO_FEEDBACK_REQ = 0x09;
 constexpr uint8_t CMD_SHUTDOWN           = 0x0A;
+constexpr uint8_t CMD_IMU_REQ            = 0x0B;
 
 // Response Packet Types (ESP32 -> ROS2)
 constexpr uint8_t RESP_ENCODER        = 0x10;
@@ -31,6 +32,7 @@ constexpr uint8_t RESP_FEEDBACK       = 0x11;
 constexpr uint8_t RESP_ACK            = 0x12;
 constexpr uint8_t RESP_ERROR          = 0x13;
 constexpr uint8_t RESP_SERVO_FEEDBACK = 0x14;
+constexpr uint8_t RESP_IMU            = 0x15;
 
 // Packet Structure:
 // [HEADER1] [HEADER2] [TYPE] [LENGTH] [PAYLOAD...] [CHECKSUM]

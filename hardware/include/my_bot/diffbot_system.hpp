@@ -5,14 +5,17 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <thread>
 
 #include "hardware_interface/handle.hpp"
 #include "hardware_interface/hardware_info.hpp"
 #include "hardware_interface/system_interface.hpp"
 #include "hardware_interface/types/hardware_interface_return_values.hpp"
 #include "rclcpp/macros.hpp"
+#include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/node_interfaces/lifecycle_node_interface.hpp"
 #include "rclcpp_lifecycle/state.hpp"
+#include "sensor_msgs/msg/imu.hpp"
 #include "my_bot/uart_protocol.hpp"
 
 // Serial communication includes
@@ -109,6 +112,19 @@ private:
   std::vector<double> last_servo_commands_;           // Last commanded positions
   int servo_update_counter_ = 0;                      // Counter for rate limiting
   const double servo_position_threshold_ = 0.01;      // Min change to send command (rad ~0.57 deg)
+
+  // ===== IMU Publisher =====
+  // Dedicated node + publisher so we can publish sensor_msgs/Imu from hardware_interface
+  rclcpp::Node::SharedPtr imu_node_;
+  rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_publisher_;
+  rclcpp::executors::SingleThreadedExecutor::SharedPtr imu_executor_;
+  std::thread imu_thread_;
+
+  // IMU raw data received from ESP32 (6 floats, 24 bytes, little-endian)
+  float imu_ax_ = 0.0f, imu_ay_ = 0.0f, imu_az_ = 0.0f;  // m/s²
+  float imu_gx_ = 0.0f, imu_gy_ = 0.0f, imu_gz_ = 0.0f;  // rad/s
+  bool imu_data_ready_ = false;
+  int imu_update_counter_ = 0;  // Rate limiter (request IMU every N cycles)
 };
 
 }  // namespace my_bot
