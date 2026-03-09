@@ -377,23 +377,33 @@ hardware_interface::return_type DiffBotSystemHardware::read(
       
       while (true)
       {
-        receivePacket();
-        
-        for (uint8_t servo_id : servo_ids)
+        // Drain all available bytes before sleeping — servo packet can be
+        // up to 76 bytes (14 servos). Old 1-byte-per-2ms pattern could time
+        // out before the full packet was consumed.
+        int bytes_avail = 0;
+        ioctl(serial_fd_, FIONREAD, &bytes_avail);
+        if (bytes_avail > 0)
         {
-          if (servo_feedback_ready_[servo_id])
+          for (int b = 0; b < bytes_avail && !any_feedback; b++)
           {
-            any_feedback = true;
+            receivePacket();
+            for (uint8_t servo_id : servo_ids)
+            {
+              if (servo_feedback_ready_[servo_id])
+                any_feedback = true;
+            }
           }
         }
-        
+        else
+        {
+          std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::steady_clock::now() - start_time).count();
-        
+
         if (elapsed > 100 || any_feedback)
           break;
-          
-        std::this_thread::sleep_for(std::chrono::milliseconds(2));
       }
       
       if (!any_feedback && error_count++ % 100 == 0)
