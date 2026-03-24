@@ -118,7 +118,7 @@ controller_server:
 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.5
+      required_movement_radius: 0.15   # Reduced: robot decelerates near goal, 0.5m is too strict
       movement_time_allowance: 10.0
     
     general_goal_checker:
@@ -129,21 +129,21 @@ controller_server:
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: True
-      min_vel_x: 0.0
+      min_vel_x: 0.05    # Motor dead zone fix — never command below what wheels can execute
       min_vel_y: 0.0
       max_vel_x: 0.26
       max_vel_y: 0.0
       max_vel_theta: 1.0
-      min_speed_xy: 0.0
+      min_speed_xy: 0.05   # Minimum combined speed — prevents near-zero crawl
       max_speed_xy: 0.26
-      min_speed_theta: 0.0
-
+      min_speed_theta: 0.2   # Motor dead zone fix for rotation — prevents stall & sudden jerk
+      
       acc_lim_x: 2.5
       acc_lim_y: 0.0
-      acc_lim_theta: 3.2
+      acc_lim_theta: 1.5     # Smoother rotational acceleration
       decel_lim_x: -2.5
       decel_lim_y: 0.0
-      decel_lim_theta: -3.2
+      decel_lim_theta: -1.5  # Smoother rotational deceleration
       vx_samples: 15  # Reduced from 20 for RPi
       vy_samples: 5
       vtheta_samples: 15  # Reduced from 20 for RPi
@@ -152,9 +152,11 @@ controller_server:
       angular_granularity: 0.025
       transform_tolerance: 0.2
       xy_goal_tolerance: 0.10   # Must match general_goal_checker xy_goal_tolerance
-      trans_stopped_velocity: 0.25
+      trans_stopped_velocity: 0.05   # Fixed: was 0.25 (nearly max speed!) causing false "stopped" detection
+      short_circuit_trajectory_evaluation: True
       stateful: True
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      critics: ["Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      # RotateToGoal removed — it causes stop-oscillate-spin behavior near goal
       BaseObstacle.scale: 0.02
       PathAlign.scale: 32.0
       PathAlign.forward_point_distance: 0.1
@@ -162,9 +164,6 @@ controller_server:
       GoalAlign.forward_point_distance: 0.1
       PathDist.scale: 32.0
       GoalDist.scale: 24.0
-      RotateToGoal.scale: 32.0
-      RotateToGoal.slowing_factor: 5.0
-      RotateToGoal.lookahead_time: -1.0
 
 local_costmap:
   local_costmap:
@@ -324,10 +323,10 @@ velocity_smoother:
     smoothing_frequency: 10.0  # Reduced from 20.0 for RPi
     scale_velocities: False
     feedback: "OPEN_LOOP"
-    max_velocity: [0.26, 0.0, 0.6]      # Rotational max matched to DWB
-    min_velocity: [-0.26, 0.0, -0.6]
-    max_accel: [2.5, 0.0, 1.0]         # Heavily dampened rotation to kill snaking
-    max_decel: [-2.5, 0.0, -1.0]
+    max_velocity: [0.26, 0.0, 1.0]
+    min_velocity: [-0.26, 0.0, -1.0]
+    max_accel: [2.5, 0.0, 3.2]
+    max_decel: [-2.5, 0.0, -3.2]
     odom_topic: "odom"
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]

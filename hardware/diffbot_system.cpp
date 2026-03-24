@@ -153,6 +153,17 @@ hardware_interface::CallbackReturn DiffBotSystemHardware::on_configure(
   RCLCPP_INFO(rclcpp::get_logger("DiffBotSystemHardware"), 
               "Successfully opened serial port!");
 
+  // ===== IMU Publisher Setup =====
+  // Create a dedicated rclcpp node to publish sensor_msgs/Imu.
+  // hardware_interface plugins don't have their own node handle, so we spin one ourselves.
+  imu_node_ = std::make_shared<rclcpp::Node>("diffbot_imu_publisher");
+  imu_publisher_ = imu_node_->create_publisher<sensor_msgs::msg::Imu>("/imu/data", 10);
+  imu_executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
+  imu_executor_->add_node(imu_node_);
+  imu_thread_ = std::thread([this]() { imu_executor_->spin(); });
+  RCLCPP_INFO(rclcpp::get_logger("DiffBotSystemHardware"),
+              "IMU publisher started on /imu/data");
+
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -271,7 +282,15 @@ hardware_interface::CallbackReturn DiffBotSystemHardware::on_deactivate(
   // Stop motors
   sendPacket(uart_protocol::CMD_STOP, nullptr, 0);
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  
+
+  // ===== IMU Publisher Shutdown =====
+  if (imu_executor_) {
+    imu_executor_->cancel();
+  }
+  if (imu_thread_.joinable()) {
+    imu_thread_.join();
+  }
+
   RCLCPP_INFO(rclcpp::get_logger("DiffBotSystemHardware"), "Successfully deactivated!");
 
   return hardware_interface::CallbackReturn::SUCCESS;
@@ -358,23 +377,33 @@ hardware_interface::return_type DiffBotSystemHardware::read(
       
       while (true)
       {
-        receivePacket();
-        
-        for (uint8_t servo_id : servo_ids)
+        // Drain all available bytes before sleeping — servo packet can be
+        // up to 76 bytes (14 servos). Old 1-byte-per-2ms pattern could time
+        // out before the full packet was consumed.
+        int bytes_avail = 0;
+        ioctl(serial_fd_, FIONREAD, &bytes_avail);
+        if (bytes_avail > 0)
         {
-          if (servo_feedback_ready_[servo_id])
+          for (int b = 0; b < bytes_avail && !any_feedback; b++)
           {
-            any_feedback = true;
+            receivePacket();
+            for (uint8_t servo_id : servo_ids)
+            {
+              if (servo_feedback_ready_[servo_id])
+                any_feedback = true;
+            }
           }
         }
-        
+        else
+        {
+          std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::steady_clock::now() - start_time).count();
-        
+
         if (elapsed > 100 || any_feedback)
           break;
-          
-        std::this_thread::sleep_for(std::chrono::milliseconds(2));
       }
       
       if (!any_feedback && error_count++ % 100 == 0)
@@ -396,6 +425,73 @@ hardware_interface::return_type DiffBotSystemHardware::read(
     {
       hw_velocities_[i] = (hw_positions_[i] - prev_positions_[i]) / dt;
       prev_positions_[i] = hw_positions_[i];
+    }
+  }
+
+  // ========== READ IMU at ~10 Hz (every 5 cycles) ==========
+  // ESP32 responds with RESP_IMU (0x15): 24 bytes = 6 floats (ax, ay, az, gx, gy, gz)
+  imu_update_counter_++;
+  if (imu_update_counter_ >= 2)  // ~20 Hz loop / 2 = ~10 Hz IMU
+  {
+    imu_update_counter_ = 0;
+    imu_data_ready_ = false;
+
+    if (sendPacket(uart_protocol::CMD_IMU_REQ, nullptr, 0))
+    {
+      // Drain all available bytes per iteration — RESP_IMU is 30 bytes.
+      // Old pattern (1 byte per 2ms sleep) hit 50ms timeout before all 30 bytes
+      // were processed (25 iterations × 1 byte = 25 bytes < 30 needed).
+      // Fix: tight inner loop drains the buffer, sleep only when buffer is empty.
+      auto imu_start = std::chrono::steady_clock::now();
+      while (!imu_data_ready_)
+      {
+        // Drain every byte currently in the UART buffer without sleeping
+        int bytes_avail = 0;
+        ioctl(serial_fd_, FIONREAD, &bytes_avail);
+        if (bytes_avail > 0)
+        {
+          for (int b = 0; b < bytes_avail && !imu_data_ready_; b++)
+            receivePacket();
+        }
+        else
+        {
+          std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now() - imu_start).count();
+        if (elapsed > 100)  // 100ms timeout matches encoder pattern
+          break;
+      }
+
+      if (imu_data_ready_ && imu_publisher_)
+      {
+        sensor_msgs::msg::Imu imu_msg;
+        imu_msg.header.stamp = rclcpp::Clock().now();
+        imu_msg.header.frame_id = "imu_link";
+
+        // Linear acceleration (m/s²)
+        imu_msg.linear_acceleration.x = imu_ax_;
+        imu_msg.linear_acceleration.y = imu_ay_;
+        imu_msg.linear_acceleration.z = imu_az_;
+
+        // Angular velocity (rad/s)
+        imu_msg.angular_velocity.x = imu_gx_;
+        imu_msg.angular_velocity.y = imu_gy_;
+        imu_msg.angular_velocity.z = imu_gz_;
+
+        // Orientation unknown — signal with -1 in first covariance element
+        imu_msg.orientation_covariance[0] = -1.0;
+
+        // Small diagonal covariance for accel and gyro (tune to your IMU)
+        imu_msg.linear_acceleration_covariance[0] = 0.01;
+        imu_msg.linear_acceleration_covariance[4] = 0.01;
+        imu_msg.linear_acceleration_covariance[8] = 0.01;
+        imu_msg.angular_velocity_covariance[0] = 0.0005;
+        imu_msg.angular_velocity_covariance[4] = 0.0005;
+        imu_msg.angular_velocity_covariance[8] = 0.0005;  // gz — calibrated, low bias
+
+        imu_publisher_->publish(imu_msg);
+      }
     }
   }
 
@@ -797,6 +893,26 @@ void DiffBotSystemHardware::processPacket(uint8_t packet_type, const uint8_t* pa
     case uart_protocol::RESP_SERVO_FEEDBACK:
       // Process servo feedback from multiple servos
       processServoFeedback(payload, length);
+      break;
+
+    case uart_protocol::RESP_IMU:
+      // 24 bytes: 6 × float32 little-endian  →  ax, ay, az (m/s²), gx, gy, gz (rad/s)
+      // Matches Python: struct.unpack('<ffffff', payload)
+      if (length == 24)
+      {
+        memcpy(&imu_ax_, &payload[0],  sizeof(float));
+        memcpy(&imu_ay_, &payload[4],  sizeof(float));
+        memcpy(&imu_az_, &payload[8],  sizeof(float));
+        memcpy(&imu_gx_, &payload[12], sizeof(float));
+        memcpy(&imu_gy_, &payload[16], sizeof(float));
+        memcpy(&imu_gz_, &payload[20], sizeof(float));
+        imu_data_ready_ = true;
+      }
+      else
+      {
+        RCLCPP_WARN(rclcpp::get_logger("DiffBotSystemHardware"),
+                    "Invalid IMU response length: %d (expected 24)", length);
+      }
       break;
       
     default:
