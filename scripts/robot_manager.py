@@ -27,9 +27,11 @@ class RobotManager(Node):
         self.mapping_active = False
         self.navigation_active = False
         self.camera_active = False
+        self.explore_active = False
         self.slam_process = None
         self.nav2_process = None
         self.camera_process = None
+        self.explore_process = None
         
         # Navigation state
         self.nav_status = 'idle'  # idle, navigating, goal_reached, goal_failed, cancelled
@@ -63,6 +65,7 @@ class RobotManager(Node):
         self.mapping_status_pub = self.create_publisher(Bool, '/robot/mapping_active', 10)
         self.nav_status_pub = self.create_publisher(Bool, '/robot/navigation_active', 10)
         self.camera_status_pub = self.create_publisher(Bool, '/robot/camera_active', 10)
+        self.explore_status_pub = self.create_publisher(Bool, '/robot/explore_active', 10)
         
         # Navigation status publishers
         self.nav_state_pub = self.create_publisher(String, '/robot/nav_status', 10)
@@ -94,6 +97,10 @@ class RobotManager(Node):
             Trigger, '/robot/start_camera', self.start_camera_callback)
         self.stop_camera_srv = self.create_service(
             Trigger, '/robot/stop_camera', self.stop_camera_callback)
+        self.start_explore_srv = self.create_service(
+            Trigger, '/robot/start_explore', self.start_explore_callback)
+        self.stop_explore_srv = self.create_service(
+            Trigger, '/robot/stop_explore', self.stop_explore_callback)
 
         # Location subscriptions (publish name to topic to trigger)
         self.create_subscription(String, '/robot/save_location',   self.save_location_callback,   10)
@@ -228,7 +235,9 @@ class RobotManager(Node):
         """Publish current robot state"""
         # System state
         state_msg = String()
-        if self.mapping_active and self.navigation_active:
+        if self.explore_active:
+            state_msg.data = 'exploring'
+        elif self.mapping_active and self.navigation_active:
             state_msg.data = 'mapping_and_navigating'
         elif self.mapping_active:
             state_msg.data = 'mapping'
@@ -250,6 +259,10 @@ class RobotManager(Node):
         camera_msg = Bool()
         camera_msg.data = self.camera_active
         self.camera_status_pub.publish(camera_msg)
+
+        explore_msg = Bool()
+        explore_msg.data = self.explore_active
+        self.explore_status_pub.publish(explore_msg)
         
         # Navigation status
         nav_state_msg = String()
@@ -500,6 +513,63 @@ class RobotManager(Node):
         
         return response
 
+    def start_explore_callback(self, request, response):
+        """Start explore_lite for autonomous mapping"""
+        if self.explore_active:
+            response.success = False
+            response.message = 'Exploration already active'
+            return response
+
+        if not self.mapping_active:
+            response.success = False
+            response.message = 'Start mapping first before exploring'
+            return response
+
+        if not self.navigation_active:
+            response.success = False
+            response.message = 'Start navigation first before exploring'
+            return response
+
+        try:
+            self.explore_process = subprocess.Popen([
+                'ros2', 'launch', 'explore_lite', 'explore.launch.py',
+                f'use_sim_time:={str(self.use_sim_time).lower()}',
+                'return_to_init:=true'
+            ])
+            self.explore_active = True
+            response.success = True
+            response.message = 'Autonomous exploration started'
+            self.get_logger().info('explore_lite started')
+        except Exception as e:
+            response.success = False
+            response.message = f'Failed to start exploration: {str(e)}'
+            self.get_logger().error(f'Failed to start explore_lite: {str(e)}')
+
+        return response
+
+    def stop_explore_callback(self, request, response):
+        """Stop explore_lite"""
+        if not self.explore_active:
+            response.success = False
+            response.message = 'Exploration not active'
+            return response
+
+        try:
+            if self.explore_process:
+                self.explore_process.send_signal(signal.SIGINT)
+                self.explore_process.wait(timeout=5)
+                self.explore_process = None
+            self.explore_active = False
+            response.success = True
+            response.message = 'Exploration stopped'
+            self.get_logger().info('explore_lite stopped')
+        except Exception as e:
+            response.success = False
+            response.message = f'Failed to stop exploration: {str(e)}'
+            self.get_logger().error(f'Failed to stop explore_lite: {str(e)}')
+
+        return response
+
 # ── Named location helpers ────────────────────────────────────────────────────
 
     def _map_callback(self, msg: OccupancyGrid):
@@ -691,6 +761,8 @@ def main(args=None):
             node.nav2_process.send_signal(signal.SIGINT)
         if node.camera_process:
             node.camera_process.send_signal(signal.SIGINT)
+        if node.explore_process:
+            node.explore_process.send_signal(signal.SIGINT)
         node.destroy_node()
         # Only shutdown if context is still valid
         if rclpy.ok():
