@@ -14,6 +14,7 @@ import signal
 import os
 import math
 import json
+import threading
 import tf2_ros
 
 class RobotManager(Node):
@@ -130,11 +131,7 @@ class RobotManager(Node):
         """Update current robot position"""
         self.current_pose = msg.pose.pose
         
-        # Calculate distance to goal if navigating
-        if self.current_goal and self.nav_status == 'navigating':
-            dx = self.current_goal.pose.position.x - self.current_pose.position.x
-            dy = self.current_goal.pose.position.y - self.current_pose.position.y
-            self.distance_to_goal = math.sqrt(dx*dx + dy*dy)
+        # distance_to_goal is updated via nav_feedback_callback (Nav2 path distance)
     
     def goal_callback(self, msg):
         """Handle new navigation goal"""
@@ -184,8 +181,7 @@ class RobotManager(Node):
     def nav_feedback_callback(self, feedback_msg):
         """Handle navigation feedback"""
         feedback = feedback_msg.feedback
-        # You can publish progress here if needed
-        # self.get_logger().info(f'Distance remaining: {feedback.distance_remaining:.2f}')
+        self.distance_to_goal = feedback.distance_remaining
     
     def nav_result_callback(self, future):
         """Handle navigation result"""
@@ -524,6 +520,20 @@ class RobotManager(Node):
         
         return response
 
+    def _monitor_explore_output(self):
+        """Background thread: watch explore_lite output and auto-stop when done"""
+        try:
+            for line in self.explore_process.stdout:
+                if 'Successfully returned to initial pose' in line:
+                    self.get_logger().info('Exploration complete — auto-stopping explore_lite')
+                    self.explore_process.send_signal(signal.SIGINT)
+                    self.explore_process.wait(timeout=5)
+                    self.explore_process = None
+                    self.explore_active = False
+                    break
+        except Exception as e:
+            self.get_logger().error(f'explore monitor error: {str(e)}')
+
     def start_explore_callback(self, request, response):
         """Start explore_lite for autonomous mapping"""
         if self.explore_active:
@@ -542,12 +552,18 @@ class RobotManager(Node):
             return response
 
         try:
-            self.explore_process = subprocess.Popen([
-                'ros2', 'launch', 'explore_lite', 'explore.launch.py',
-                f'use_sim_time:={str(self.use_sim_time).lower()}',
-                'return_to_init:=true'
-            ])
+            self.explore_process = subprocess.Popen(
+                [
+                    'ros2', 'launch', 'explore_lite', 'explore.launch.py',
+                    f'use_sim_time:={str(self.use_sim_time).lower()}',
+                    'return_to_init:=true'
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True
+            )
             self.explore_active = True
+            threading.Thread(target=self._monitor_explore_output, daemon=True).start()
             response.success = True
             response.message = 'Autonomous exploration started'
             self.get_logger().info('explore_lite started')
