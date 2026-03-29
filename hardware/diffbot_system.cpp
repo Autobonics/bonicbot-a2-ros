@@ -488,7 +488,7 @@ hardware_interface::return_type DiffBotSystemHardware::read(
         imu_msg.linear_acceleration_covariance[8] = 0.01;
         imu_msg.angular_velocity_covariance[0] = 0.0005;
         imu_msg.angular_velocity_covariance[4] = 0.0005;
-        imu_msg.angular_velocity_covariance[8] = 0.0005;  // gz — calibrated, low bias
+        imu_msg.angular_velocity_covariance[8] = 0.0001;  // gz — tightened: IMU is sole yaw-rate source for EKF
 
         imu_publisher_->publish(imu_msg);
       }
