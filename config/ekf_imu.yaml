@@ -14,14 +14,14 @@ ekf_filter_node:
     odom0: /diff_cont/odom
 
     # [x,    y,     z,
-    #  roll,  pitch, yaw,    ← TRUE: odom anchors the heading (prevents sliding)
+    #  roll,  pitch, yaw,    ← FALSE: odom no longer drives heading — IMU gz owns rotation
     #  vx,   vy,    vz,
-    #  vroll, vpitch, vyaw,
+    #  vroll, vpitch, vyaw,  ← FALSE: IMU gz is the sole yaw-rate source
     #  ax,   ay,    az]
     odom0_config: [true,  true,  false,
-                   false, false, true,
+                   false, false, false,
                    true,  false, false,
-                   false, false, true,
+                   false, false, false,
                    false, false, false]
 
     odom0_queue_size: 10
@@ -30,10 +30,10 @@ ekf_filter_node:
     odom0_relative: false
 
     # ── IMU ────────────────────────────────────────────────────────────────
-    # Only gz (yaw rate) for gentle smoothing on top of odom heading.
-    # ax removed — caused position drift on flat floor.
-    # imu0_covariance is set high (0.1) in diffbot_system.cpp angular_velocity_covariance
-    # so odom yaw still dominates; IMU just smooths sudden jitter.
+    # Only gz (yaw rate) is enabled. IMU is the SOLE source of rotation —
+    # odom absolute yaw AND vyaw are both disabled above.
+    # angular_velocity_covariance[8]=0.0001 in diffbot_system.cpp.
+    # Tradeoff: gyro drift will slowly accumulate; AMCL/SLAM corrects it during navigation.
     imu0: /imu/data
 
     imu0_config: [false, false, false,
