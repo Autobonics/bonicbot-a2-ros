@@ -102,7 +102,10 @@ class RobotManager(Node):
 
         # Publish list of saved locations (JSON string)
         self.locations_list_pub = self.create_publisher(String, '/robot/locations_list', 10)
-        
+
+        # Publish whether a saved map file exists on disk
+        self.map_available_pub = self.create_publisher(Bool, '/robot/map_available', 10)
+
         # Subscribe to navigation goals
         self.goal_sub = self.create_subscription(
             PoseStamped,
@@ -266,6 +269,11 @@ class RobotManager(Node):
         locations_msg = String()
         locations_msg.data = json.dumps(list(self._load_locations().keys()))
         self.locations_list_pub.publish(locations_msg)
+
+        # Map available on disk
+        map_avail_msg = Bool()
+        map_avail_msg.data = os.path.exists(os.path.expanduser('~/maps/my_map.yaml'))
+        self.map_available_pub.publish(map_avail_msg)
     
     def start_mapping_callback(self, request, response):
         """Start SLAM Toolbox for mapping"""
