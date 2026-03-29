@@ -65,6 +65,7 @@ install(
 # Install Python scripts
 install(PROGRAMS
   scripts/robot_manager.py
+  scripts/precise_motion
   DESTINATION lib/${PROJECT_NAME}
 )
 
