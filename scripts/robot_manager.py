@@ -383,11 +383,22 @@ class RobotManager(Node):
                     f'use_sim_time:={str(self.use_sim_time).lower()}'
                 ])
             
-            self.navigation_active = True
-            self.nav_status = 'idle'
-            response.success = True
-            response.message = 'Navigation started successfully'
-            self.get_logger().info('Nav2 started')
+            # Wait for Nav2 action server to be ready (costmaps loaded)
+            self.get_logger().info('Waiting for Nav2 to become ready...')
+            if self.nav_to_pose_client is None:
+                self.nav_to_pose_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+            if self.nav_to_pose_client.wait_for_server(timeout_sec=60.0):
+                self.navigation_active = True
+                self.nav_status = 'idle'
+                response.success = True
+                response.message = 'Navigation started successfully'
+                self.get_logger().info('Nav2 ready')
+            else:
+                self.nav2_process.send_signal(signal.SIGINT)
+                self.nav2_process = None
+                response.success = False
+                response.message = 'Nav2 failed to become ready within 60s'
+                self.get_logger().error('Nav2 did not become ready in time')
             
         except Exception as e:
             response.success = False

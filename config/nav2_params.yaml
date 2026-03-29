@@ -266,7 +266,7 @@ planner_server:
     GridBased:
       plugin: "nav2_navfn_planner/NavfnPlanner"
       tolerance: 0.5
-      use_astar: false
+      use_astar: true #false ----------------------------------- //new update Dijkstra to A algorithm faster now but only downside of A* is in not good in very complex maze-like environments with many dead-ends
       allow_unknown: true
 
 smoother_server:
