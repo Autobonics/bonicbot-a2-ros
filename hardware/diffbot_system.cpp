@@ -488,7 +488,7 @@ hardware_interface::return_type DiffBotSystemHardware::read(
         imu_msg.linear_acceleration_covariance[8] = 0.01;
         imu_msg.angular_velocity_covariance[0] = 0.0005;
         imu_msg.angular_velocity_covariance[4] = 0.0005;
-        imu_msg.angular_velocity_covariance[8] = 0.0005;  // gz — calibrated, low bias
+        imu_msg.angular_velocity_covariance[8] = 0.0001;  // gz — tightened: IMU is sole yaw-rate source for EKF
 
         imu_publisher_->publish(imu_msg);
       }
@@ -521,7 +521,7 @@ hardware_interface::return_type DiffBotSystemHardware::write(
   {
     motor_counter = 0;
     
-    // Convert commanded velocities (rad/s) to PWM values
+    // Convert commanded velocities (rad/s) to PWM values (Simple mapping - ESP32 handles deadband)
     int16_t pwm_left = static_cast<int16_t>((hw_commands_[0] / max_velocity_) * 1022.0);
     int16_t pwm_right = static_cast<int16_t>((hw_commands_[1] / max_velocity_) * 1022.0);
 
@@ -529,20 +529,34 @@ hardware_interface::return_type DiffBotSystemHardware::write(
     pwm_left = std::max<int16_t>(-1022, std::min<int16_t>(1022, pwm_left));
     pwm_right = std::max<int16_t>(-1022, std::min<int16_t>(1022, pwm_right));
 
-    // Build payload: two int16_t values (4 bytes total, little-endian)
-    uint8_t payload[4];
-    payload[0] = pwm_left & 0xFF;
-    payload[1] = (pwm_left >> 8) & 0xFF;
-    payload[2] = pwm_right & 0xFF;
-    payload[3] = (pwm_right >> 8) & 0xFF;
-
-    if (!sendPacket(uart_protocol::CMD_PWM, payload, 4))
+    // Only send the command if PWM values have changed to reduce UART traffic
+    static int16_t prev_pwm_left = -9999;
+    static int16_t prev_pwm_right = -9999;
+    
+    if (pwm_left != prev_pwm_left || pwm_right != prev_pwm_right)
     {
-      if (error_count++ % 100 == 0)
+      // Build payload: two int16_t values (4 bytes total, little-endian)
+      uint8_t payload[4];
+      payload[0] = pwm_left & 0xFF;
+      payload[1] = (pwm_left >> 8) & 0xFF;
+      payload[2] = pwm_right & 0xFF;
+      payload[3] = (pwm_right >> 8) & 0xFF;
+
+      if (!sendPacket(uart_protocol::CMD_PWM, payload, 4))
       {
-        RCLCPP_ERROR(rclcpp::get_logger("DiffBotSystemHardware"), "Failed to send motor command");
+        if (error_count++ % 100 == 0)
+        {
+          RCLCPP_ERROR(rclcpp::get_logger("DiffBotSystemHardware"), "Failed to send motor command");
+        }
+        return hardware_interface::return_type::ERROR;
       }
-      return hardware_interface::return_type::ERROR;
+      
+      // Update tracking variables
+      prev_pwm_left = pwm_left;
+      prev_pwm_right = pwm_right;
+
+      // Print PWM values only when they change
+      RCLCPP_INFO(rclcpp::get_logger("DiffBotSystemHardware"), "PWM values: %d, %d (SENT)", pwm_left, pwm_right);
     }
   }
 

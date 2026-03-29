@@ -3,15 +3,19 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
+from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy
 from std_msgs.msg import String, Bool, Float32
 from std_srvs.srv import Trigger
 from geometry_msgs.msg import PoseStamped, Point
 from nav2_msgs.action import NavigateToPose
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import Odometry, OccupancyGrid
 import subprocess
 import signal
 import os
 import math
+import json
+import threading
+import tf2_ros
 
 class RobotManager(Node):
     def __init__(self):
@@ -24,15 +28,34 @@ class RobotManager(Node):
         self.mapping_active = False
         self.navigation_active = False
         self.camera_active = False
+        self.explore_active = False
         self.slam_process = None
         self.nav2_process = None
         self.camera_process = None
+        self.explore_process = None
         
         # Navigation state
         self.nav_status = 'idle'  # idle, navigating, goal_reached, goal_failed, cancelled
         self.current_goal = None
         self.current_pose = None
         self.distance_to_goal = 0.0
+
+        # Named locations
+        self.locations_file = os.path.expanduser('~/maps/my_map_locations.json')
+        self.session_locations = {}   # in-memory; reset on each new mapping session
+
+        # Cache the latest /map message so we can write it directly (avoids map_saver QoS issues)
+        self.latest_map: OccupancyGrid = None
+        map_qos = QoSProfile(
+            depth=1,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+        )
+        self.create_subscription(OccupancyGrid, '/map', self._map_callback, map_qos)
+
+        # TF listener for map-frame pose
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         
         # Action client for navigation
         self.nav_to_pose_client = None
@@ -43,6 +66,7 @@ class RobotManager(Node):
         self.mapping_status_pub = self.create_publisher(Bool, '/robot/mapping_active', 10)
         self.nav_status_pub = self.create_publisher(Bool, '/robot/navigation_active', 10)
         self.camera_status_pub = self.create_publisher(Bool, '/robot/camera_active', 10)
+        self.explore_status_pub = self.create_publisher(Bool, '/robot/explore_active', 10)
         
         # Navigation status publishers
         self.nav_state_pub = self.create_publisher(String, '/robot/nav_status', 10)
@@ -74,7 +98,22 @@ class RobotManager(Node):
             Trigger, '/robot/start_camera', self.start_camera_callback)
         self.stop_camera_srv = self.create_service(
             Trigger, '/robot/stop_camera', self.stop_camera_callback)
-        
+        self.start_explore_srv = self.create_service(
+            Trigger, '/robot/start_explore', self.start_explore_callback)
+        self.stop_explore_srv = self.create_service(
+            Trigger, '/robot/stop_explore', self.stop_explore_callback)
+
+        # Location subscriptions (publish name to topic to trigger)
+        self.create_subscription(String, '/robot/save_location',   self.save_location_callback,   10)
+        self.create_subscription(String, '/robot/goto_location',   self.goto_location_callback,   10)
+        self.create_subscription(String, '/robot/delete_location', self.delete_location_callback, 10)
+
+        # Publish list of saved locations (JSON string)
+        self.locations_list_pub = self.create_publisher(String, '/robot/locations_list', 10)
+
+        # Publish whether a saved map file exists on disk
+        self.map_available_pub = self.create_publisher(Bool, '/robot/map_available', 10)
+
         # Subscribe to navigation goals
         self.goal_sub = self.create_subscription(
             PoseStamped,
@@ -92,11 +131,7 @@ class RobotManager(Node):
         """Update current robot position"""
         self.current_pose = msg.pose.pose
         
-        # Calculate distance to goal if navigating
-        if self.current_goal and self.nav_status == 'navigating':
-            dx = self.current_goal.pose.position.x - self.current_pose.position.x
-            dy = self.current_goal.pose.position.y - self.current_pose.position.y
-            self.distance_to_goal = math.sqrt(dx*dx + dy*dy)
+        # distance_to_goal is updated via nav_feedback_callback (Nav2 path distance)
     
     def goal_callback(self, msg):
         """Handle new navigation goal"""
@@ -146,8 +181,7 @@ class RobotManager(Node):
     def nav_feedback_callback(self, feedback_msg):
         """Handle navigation feedback"""
         feedback = feedback_msg.feedback
-        # You can publish progress here if needed
-        # self.get_logger().info(f'Distance remaining: {feedback.distance_remaining:.2f}')
+        self.distance_to_goal = feedback.distance_remaining
     
     def nav_result_callback(self, future):
         """Handle navigation result"""
@@ -197,7 +231,9 @@ class RobotManager(Node):
         """Publish current robot state"""
         # System state
         state_msg = String()
-        if self.mapping_active and self.navigation_active:
+        if self.explore_active:
+            state_msg.data = 'exploring'
+        elif self.mapping_active and self.navigation_active:
             state_msg.data = 'mapping_and_navigating'
         elif self.mapping_active:
             state_msg.data = 'mapping'
@@ -219,6 +255,10 @@ class RobotManager(Node):
         camera_msg = Bool()
         camera_msg.data = self.camera_active
         self.camera_status_pub.publish(camera_msg)
+
+        explore_msg = Bool()
+        explore_msg.data = self.explore_active
+        self.explore_status_pub.publish(explore_msg)
         
         # Navigation status
         nav_state_msg = String()
@@ -233,6 +273,16 @@ class RobotManager(Node):
         # Current goal
         if self.current_goal:
             self.current_goal_pub.publish(self.current_goal)
+
+        # Saved locations list
+        locations_msg = String()
+        locations_msg.data = json.dumps(list(self._load_locations().keys()))
+        self.locations_list_pub.publish(locations_msg)
+
+        # Map available on disk
+        map_avail_msg = Bool()
+        map_avail_msg.data = os.path.exists(os.path.expanduser('~/maps/my_map.yaml'))
+        self.map_available_pub.publish(map_avail_msg)
     
     def start_mapping_callback(self, request, response):
         """Start SLAM Toolbox for mapping"""
@@ -255,6 +305,7 @@ class RobotManager(Node):
             ])
             
             self.mapping_active = True
+            self.session_locations = {}   # clear in-memory locations for new map session
             response.success = True
             response.message = 'Mapping started successfully'
             self.get_logger().info('SLAM Toolbox started')
@@ -328,11 +379,22 @@ class RobotManager(Node):
                     f'use_sim_time:={str(self.use_sim_time).lower()}'
                 ])
             
-            self.navigation_active = True
-            self.nav_status = 'idle'
-            response.success = True
-            response.message = 'Navigation started successfully'
-            self.get_logger().info('Nav2 started')
+            # Wait for Nav2 action server to be ready (costmaps loaded)
+            self.get_logger().info('Waiting for Nav2 to become ready...')
+            if self.nav_to_pose_client is None:
+                self.nav_to_pose_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+            if self.nav_to_pose_client.wait_for_server(timeout_sec=60.0):
+                self.navigation_active = True
+                self.nav_status = 'idle'
+                response.success = True
+                response.message = 'Navigation started successfully'
+                self.get_logger().info('Nav2 ready')
+            else:
+                self.nav2_process.send_signal(signal.SIGINT)
+                self.nav2_process = None
+                response.success = False
+                response.message = 'Nav2 failed to become ready within 60s'
+                self.get_logger().error('Nav2 did not become ready in time')
             
         except Exception as e:
             response.success = False
@@ -375,36 +437,15 @@ class RobotManager(Node):
         return response
     
     def save_map_callback(self, request, response):
-        """Save current map"""
+        """Save current map via SLAM Toolbox service (reliable when Nav2 also running)"""
         if not self.mapping_active:
             response.success = False
             response.message = 'Mapping not active. Start mapping first.'
             return response
-        
-        try:
-            map_dir = os.path.expanduser('~/maps')
-            os.makedirs(map_dir, exist_ok=True)
-            
-            map_path = os.path.join(map_dir, 'my_map')
-            
-            result = subprocess.run([
-                'ros2', 'run', 'nav2_map_server', 'map_saver_cli',
-                '-f', map_path
-            ], capture_output=True, timeout=10)
-            
-            if result.returncode == 0:
-                response.success = True
-                response.message = f'Map saved to {map_path}.yaml'
-                self.get_logger().info(f'Map saved to {map_path}')
-            else:
-                response.success = False
-                response.message = f'Failed to save map: {result.stderr.decode()}'
-                
-        except Exception as e:
-            response.success = False
-            response.message = f'Failed to save map: {str(e)}'
-            self.get_logger().error(f'Failed to save map: {str(e)}')
-        
+
+        success, message = self._save_map_internal()
+        response.success = success
+        response.message = message
         return response
     
     def start_camera_callback(self, request, response):
@@ -479,6 +520,258 @@ class RobotManager(Node):
         
         return response
 
+    def _monitor_explore_output(self):
+        """Background thread: watch explore_lite output and auto-stop when done"""
+        try:
+            for line in self.explore_process.stdout:
+                if 'Successfully returned to initial pose' in line:
+                    self.get_logger().info('Exploration complete — auto-stopping explore_lite')
+                    self.explore_process.send_signal(signal.SIGINT)
+                    self.explore_process.wait(timeout=5)
+                    self.explore_process = None
+                    self.explore_active = False
+                    break
+        except Exception as e:
+            self.get_logger().error(f'explore monitor error: {str(e)}')
+
+    def start_explore_callback(self, request, response):
+        """Start explore_lite for autonomous mapping"""
+        if self.explore_active:
+            response.success = False
+            response.message = 'Exploration already active'
+            return response
+
+        if not self.mapping_active:
+            response.success = False
+            response.message = 'Start mapping first before exploring'
+            return response
+
+        if not self.navigation_active:
+            response.success = False
+            response.message = 'Start navigation first before exploring'
+            return response
+
+        try:
+            self.explore_process = subprocess.Popen(
+                [
+                    'ros2', 'launch', 'explore_lite', 'explore.launch.py',
+                    f'use_sim_time:={str(self.use_sim_time).lower()}',
+                    'return_to_init:=true'
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True
+            )
+            self.explore_active = True
+            threading.Thread(target=self._monitor_explore_output, daemon=True).start()
+            response.success = True
+            response.message = 'Autonomous exploration started'
+            self.get_logger().info('explore_lite started')
+        except Exception as e:
+            response.success = False
+            response.message = f'Failed to start exploration: {str(e)}'
+            self.get_logger().error(f'Failed to start explore_lite: {str(e)}')
+
+        return response
+
+    def stop_explore_callback(self, request, response):
+        """Stop explore_lite"""
+        if not self.explore_active:
+            response.success = False
+            response.message = 'Exploration not active'
+            return response
+
+        try:
+            if self.explore_process:
+                self.explore_process.send_signal(signal.SIGINT)
+                self.explore_process.wait(timeout=5)
+                self.explore_process = None
+            self.explore_active = False
+            response.success = True
+            response.message = 'Exploration stopped'
+            self.get_logger().info('explore_lite stopped')
+        except Exception as e:
+            response.success = False
+            response.message = f'Failed to stop exploration: {str(e)}'
+            self.get_logger().error(f'Failed to stop explore_lite: {str(e)}')
+
+        return response
+
+# ── Named location helpers ────────────────────────────────────────────────────
+
+    def _map_callback(self, msg: OccupancyGrid):
+        """Cache the latest map for direct file writing."""
+        self.latest_map = msg
+
+    def _get_map_pose(self):
+        """Return (x, y, yaw) in map frame, or None if TF unavailable."""
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                'map', 'base_link', rclpy.time.Time())
+            t = transform.transform.translation
+            q = transform.transform.rotation
+            yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                             1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+            return t.x, t.y, yaw
+        except Exception as e:
+            self.get_logger().error(f'TF map→base_link unavailable: {e}')
+            return None
+
+    def _save_map_internal(self):
+        """Write the cached OccupancyGrid directly to .pgm + .yaml. Returns (success, message)."""
+        if self.latest_map is None:
+            return False, 'No map received yet — wait for SLAM to build a map'
+
+        try:
+            map_dir = os.path.expanduser('~/maps')
+            os.makedirs(map_dir, exist_ok=True)
+            map_path = os.path.join(map_dir, 'my_map')
+            pgm_path  = map_path + '.pgm'
+            yaml_path = map_path + '.yaml'
+
+            info = self.latest_map.info
+            width, height = info.width, info.height
+            data = self.latest_map.data   # flat row-major, row 0 = bottom
+
+            # Build PGM pixel array (P5 binary, 8-bit grey).
+            # ROS convention: free=0→255, occupied=100→0, unknown=-1→205
+            pixels = bytearray(width * height)
+            for i, v in enumerate(data):
+                if v == 0:
+                    pixels[i] = 254
+                elif v == 100:
+                    pixels[i] = 0
+                else:
+                    pixels[i] = 205   # unknown
+
+            # PGM is stored top-row-first; ROS data is bottom-row-first → flip
+            rows = [pixels[r * width:(r + 1) * width] for r in range(height)]
+            rows.reverse()
+
+            with open(pgm_path, 'wb') as f:
+                header = f'P5\n{width} {height}\n255\n'.encode()
+                f.write(header)
+                for row in rows:
+                    f.write(row)
+
+            origin = info.origin
+            ox = origin.position.x
+            oy = origin.position.y
+            q = origin.orientation
+            yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                             1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+
+            yaml_content = (
+                f'image: my_map.pgm\n'
+                f'mode: trinary\n'
+                f'resolution: {info.resolution}\n'
+                f'origin: [{ox}, {oy}, {yaw}]\n'
+                f'negate: 0\n'
+                f'occupied_thresh: 0.65\n'
+                f'free_thresh: 0.25\n'
+            )
+            with open(yaml_path, 'w') as f:
+                f.write(yaml_content)
+
+            self.get_logger().info(f'Map saved: {pgm_path} ({width}x{height})')
+            return True, f'Map saved to {map_path}.yaml'
+
+        except Exception as e:
+            self.get_logger().error(f'Map save error: {e}')
+            return False, f'Failed to save map: {str(e)}'
+
+    def _load_locations(self):
+        """Load locations JSON from disk. Returns dict (empty if missing/corrupt)."""
+        try:
+            if os.path.exists(self.locations_file):
+                with open(self.locations_file, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            self.get_logger().error(f'Failed to load locations: {e}')
+        return {}
+
+    def _write_locations(self, locations: dict):
+        """Write locations dict to disk."""
+        try:
+            os.makedirs(os.path.dirname(self.locations_file), exist_ok=True)
+            with open(self.locations_file, 'w') as f:
+                json.dump(locations, f, indent=2)
+        except Exception as e:
+            self.get_logger().error(f'Failed to write locations: {e}')
+
+# ── Named location callbacks ──────────────────────────────────────────────────
+
+    def save_location_callback(self, msg: String):
+        """Save current map-frame pose under the given name."""
+        name = msg.data.strip()
+        if not name:
+            self.get_logger().warn('save_location: empty name ignored')
+            return
+
+        pose = self._get_map_pose()
+        if pose is None:
+            return  # error already logged in _get_map_pose
+
+        x, y, yaw = pose
+
+        if self.mapping_active:
+            # Use in-memory session dict → overwrites file (clears old map's locations)
+            self.session_locations[name] = {'x': x, 'y': y, 'yaw': yaw}
+            self._write_locations(self.session_locations)
+            # Auto-save the map so location and map stay in sync
+            self._save_map_internal()
+        else:
+            # Navigation-only mode → load existing locations and add/update
+            locations = self._load_locations()
+            locations[name] = {'x': x, 'y': y, 'yaw': yaw}
+            self._write_locations(locations)
+
+        self.get_logger().info(
+            f'Location "{name}" saved at ({x:.2f}, {y:.2f}, {math.degrees(yaw):.1f}°)')
+
+    def goto_location_callback(self, msg: String):
+        """Navigate to a previously saved named location."""
+        name = msg.data.strip()
+        locations = self._load_locations()
+
+        if name not in locations:
+            self.get_logger().error(
+                f'Location "{name}" not found. Saved: {list(locations.keys())}')
+            return
+
+        if not self.navigation_active:
+            self.get_logger().error('goto_location: navigation is not active')
+            return
+
+        loc = locations[name]
+        goal_pose = PoseStamped()
+        goal_pose.header.frame_id = 'map'
+        goal_pose.header.stamp = self.get_clock().now().to_msg()
+        goal_pose.pose.position.x = loc['x']
+        goal_pose.pose.position.y = loc['y']
+        yaw = loc['yaw']
+        goal_pose.pose.orientation.z = math.sin(yaw / 2.0)
+        goal_pose.pose.orientation.w = math.cos(yaw / 2.0)
+
+        self.get_logger().info(
+            f'Navigating to "{name}" ({loc["x"]:.2f}, {loc["y"]:.2f})')
+        self.goal_callback(goal_pose)
+
+    def delete_location_callback(self, msg: String):
+        """Delete a named location."""
+        name = msg.data.strip()
+        locations = self._load_locations()
+
+        if name not in locations:
+            self.get_logger().warn(f'delete_location: "{name}" not found')
+            return
+
+        del locations[name]
+        self.session_locations.pop(name, None)
+        self._write_locations(locations)
+        self.get_logger().info(f'Location "{name}" deleted')
+
+
 def main(args=None):
     rclpy.init(args=args)
     node = RobotManager()
@@ -495,6 +788,8 @@ def main(args=None):
             node.nav2_process.send_signal(signal.SIGINT)
         if node.camera_process:
             node.camera_process.send_signal(signal.SIGINT)
+        if node.explore_process:
+            node.explore_process.send_signal(signal.SIGINT)
         node.destroy_node()
         # Only shutdown if context is still valid
         if rclpy.ok():

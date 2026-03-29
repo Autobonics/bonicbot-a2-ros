@@ -125,17 +125,17 @@ controller_server:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
       xy_goal_tolerance: 0.10        # 10cm — good balance of accuracy vs reliability
-      yaw_goal_tolerance: 0.20       # Relaxed slightly to prevent double-correction
+      yaw_goal_tolerance: 0.09       # ±5 degrees (0.09 rad) — higher accuracy requested
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: True
       min_vel_x: 0.0
       min_vel_y: 0.0
-      max_vel_x: 0.26
+      max_vel_x: 0.40
       max_vel_y: 0.0
       max_vel_theta: 1.0
       min_speed_xy: 0.0
-      max_speed_xy: 0.26
+      max_speed_xy: 0.40
       min_speed_theta: 0.0
 
       acc_lim_x: 2.5
@@ -152,6 +152,7 @@ controller_server:
       angular_granularity: 0.025
       transform_tolerance: 0.2
       xy_goal_tolerance: 0.10   # Must match general_goal_checker xy_goal_tolerance
+      yaw_goal_tolerance: 0.09   # Must match general_goal_checker yaw_goal_tolerance
       trans_stopped_velocity: 0.25
       stateful: True
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
@@ -265,7 +266,7 @@ planner_server:
     GridBased:
       plugin: "nav2_navfn_planner/NavfnPlanner"
       tolerance: 0.5
-      use_astar: false
+      use_astar: true #false ----------------------------------- //new update Dijkstra to A algorithm faster now but only downside of A* is in not good in very complex maze-like environments with many dead-ends
       allow_unknown: true
 
 smoother_server:
@@ -324,10 +325,10 @@ velocity_smoother:
     smoothing_frequency: 10.0  # Reduced from 20.0 for RPi
     scale_velocities: False
     feedback: "OPEN_LOOP"
-    max_velocity: [0.26, 0.0, 0.6]      # Rotational max matched to DWB
-    min_velocity: [-0.26, 0.0, -0.6]
-    max_accel: [2.5, 0.0, 1.0]         # Heavily dampened rotation to kill snaking
-    max_decel: [-2.5, 0.0, -1.0]
+    max_velocity: [0.40, 0.0, 1.0]
+    min_velocity: [-0.40, 0.0, -1.0]
+    max_accel: [2.5, 0.0, 3.2]
+    max_decel: [-2.5, 0.0, -3.2]
     odom_topic: "odom"
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
