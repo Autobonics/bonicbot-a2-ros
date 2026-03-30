@@ -4,8 +4,9 @@ from ament_index_python.packages import get_package_share_directory
 
 
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
 
 from launch_ros.actions import Node
 
@@ -14,6 +15,7 @@ from launch_ros.actions import Node
 def generate_launch_description():
 
     package_name='my_bot' 
+    
     rsp = IncludeLaunchDescription(
                 PythonLaunchDescriptionSource([os.path.join(
                     get_package_share_directory(package_name),'launch','rsp.launch.py'
@@ -34,19 +36,39 @@ def generate_launch_description():
             remappings=[('/cmd_vel_out','/diff_cont/cmd_vel_unstamped')]
         )
 
-    gazebo_params_file = os.path.join(get_package_share_directory(package_name),'config','gazebo_params.yaml')
-
+    # Gazebo Sim (Ignition Fortress)
     gazebo = IncludeLaunchDescription(
                 PythonLaunchDescriptionSource([os.path.join(
-                    get_package_share_directory('gazebo_ros'), 'launch', 'gazebo.launch.py')]),
-                    launch_arguments={'extra_gazebo_args': '--ros-args --params-file ' + gazebo_params_file}.items()
+                    get_package_share_directory('ros_gz_sim'), 'launch', 'gz_sim.launch.py')]),
+                    # Using -r (run) and a default empty world
+                    launch_arguments={'gz_args': '-r empty.sdf'}.items()
              )
 
-    spawn_entity = Node(package='gazebo_ros', executable='spawn_entity.py',
+    # Spawn the robot in Gazebo Sim
+    spawn_entity = Node(package='ros_gz_sim', executable='create',
                         arguments=['-topic', 'robot_description',
-                                   '-entity', 'my_bot'],
+                                   '-name', 'my_bot',
+                                   '-z', '0.1'], # Spawn slightly above ground to avoid clipping
                         output='screen')
 
+
+    # Bridge for Clock and Sensors
+    # /clock -> ROS clock
+    # /scan -> sensor_msgs/LaserScan
+    # /camera/image_raw -> sensor_msgs/Image
+    # /imu/data -> sensor_msgs/Imu
+    bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        arguments=[
+            '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
+            '/scan@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan',
+            '/camera/image_raw@sensor_msgs/msg/Image[gz.msgs.Image',
+            '/camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
+            '/imu/data@sensor_msgs/msg/Imu[gz.msgs.IMU'
+        ],
+        output='screen'
+    )
 
     diff_drive_spawner = Node(
         package="controller_manager",
@@ -90,6 +112,7 @@ def generate_launch_description():
         executable="spawner",
         arguments=["right_gripper_controller"],
     )
+
     ekf_node = Node(
         package='robot_localization',
         executable='ekf_node',
@@ -105,6 +128,7 @@ def generate_launch_description():
         twist_mux,
         gazebo,
         spawn_entity,
+        bridge,
         diff_drive_spawner,
         joint_broad_spawner,
         left_arm_spawner,
