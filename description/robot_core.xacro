@@ -11,7 +11,7 @@
     <xacro:property name="body_length" value="0.180"/>
     <xacro:property name="body_width" value="0.13"/>
     <xacro:property name="body_height" value="0.36"/>
-    <xacro:property name="body_mass" value="2.5"/>
+    <xacro:property name="body_mass" value="5.0"/>
     
     <!-- Shoulder Properties -->
     <xacro:property name="shoulder_radius" value="0.035"/>
@@ -52,7 +52,7 @@
     <xacro:property name="chassis_length" value="0.228"/>
     <xacro:property name="chassis_width" value="0.22"/>
     <xacro:property name="chassis_height" value="0.125"/>
-    <xacro:property name="chassis_mass" value="1.0"/>
+    <xacro:property name="chassis_mass" value="10.0"/>
     <xacro:property name="wheel_radius" value="0.06"/>
     <xacro:property name="wheel_thickness" value="0.055"/>
     <xacro:property name="wheel_mass" value="0.05"/>
@@ -136,8 +136,8 @@
                 <box size="${chassis_length} ${chassis_width} ${chassis_height}"/>
             </geometry>
         </collision>
-        <xacro:inertial_box mass="0.5" x="${chassis_length}" y="${chassis_width}" z="${chassis_height}">
-            <origin xyz="0 0 ${(chassis_height/2) + (caster_wheel_offset_z * 2) + 0.005}" rpy="0 0 0"/>
+        <xacro:inertial_box mass="5.0" x="${chassis_length}" y="${chassis_width}" z="${chassis_height}">
+            <origin xyz="0 0 0.02" rpy="0 0 0"/>
         </xacro:inertial_box>
     </link>
 
@@ -151,7 +151,7 @@
         <child link="left_wheel"/>
         <origin xyz="0 ${wheel_offset_y} 0" rpy="-${pi/2} 0 0" />
         <axis xyz="0 0 1"/>
-        <dynamics damping="0.01" friction="0.01"/>
+        <dynamics damping="0.0" friction="0.0"/>
     </joint>
 
     <link name="left_wheel">
@@ -173,10 +173,11 @@
 
     <gazebo reference="left_wheel">
         <material>Gazebo/Black</material>
-        <mu1 value="1.5"/>
-        <mu2 value="1.5"/>
-        <kp value="100000000.0"/>
-        <kd value="1000.0"/>
+        <mu1 value="20.0"/>
+        <mu2 value="20.0"/>
+        <fdir1 value="1 0 0"/>
+        <kp value="1e12"/>
+        <kd value="1.0"/>
     </gazebo>
 
 
@@ -189,7 +190,7 @@
         <child link="right_wheel"/>
         <origin xyz="0 ${-wheel_offset_y} 0" rpy="${pi/2} 0 0" />
         <axis xyz="0 0 -1"/>
-        <dynamics damping="0.01" friction="0.01"/>
+        <dynamics damping="0.0" friction="0.0"/>
     </joint>
 
     <link name="right_wheel">
@@ -211,10 +212,11 @@
 
     <gazebo reference="right_wheel">
         <material>Gazebo/Black</material>
-        <mu1 value="1.5"/>
-        <mu2 value="1.5"/>
-        <kp value="100000000.0"/>
-        <kd value="1000.0"/>
+        <mu1 value="20.0"/>
+        <mu2 value="20.0"/>
+        <fdir1 value="1 0 0"/>
+        <kp value="1e12"/>
+        <kd value="1.0"/>
     </gazebo>
 
 
