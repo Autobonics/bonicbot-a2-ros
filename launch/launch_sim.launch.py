@@ -37,11 +37,12 @@ def generate_launch_description():
         )
 
     # Gazebo Sim (Ignition Fortress)
+    world_file = os.path.join(get_package_share_directory(package_name), 'worlds', 'my_bot_world.sdf')
     gazebo = IncludeLaunchDescription(
                 PythonLaunchDescriptionSource([os.path.join(
                     get_package_share_directory('ros_gz_sim'), 'launch', 'gz_sim.launch.py')]),
-                    # Using -r (run) and a default empty world
-                    launch_arguments={'gz_args': '-r empty.sdf'}.items()
+                    # Using -r (run) and our custom world
+                    launch_arguments={'gz_args': ['-r ', world_file]}.items()
              )
 
     # Spawn the robot in Gazebo Sim

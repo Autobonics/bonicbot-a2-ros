@@ -55,7 +55,7 @@
                     <max>12</max>
                 </range>
             </lidar>
-            <topic>scan</topic>
+            <topic>/scan</topic>
             <gz_frame_id>laser_frame</gz_frame_id>
         </sensor>
     </gazebo>
