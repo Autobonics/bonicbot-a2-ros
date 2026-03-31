@@ -53,21 +53,31 @@ def generate_launch_description():
                         output='screen')
 
 
-    # Bridge for Clock and Sensors
-    # /clock -> ROS clock
-    # /scan -> sensor_msgs/LaserScan
-    # /camera/image_raw -> sensor_msgs/Image
-    # /imu/data -> sensor_msgs/Imu
+    # Bridge for Clock, Scan, and IMU
     bridge = Node(
         package='ros_gz_bridge',
         executable='parameter_bridge',
         arguments=[
             '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
             '/scan@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan',
-            '/camera/image_raw@sensor_msgs/msg/Image[gz.msgs.Image',
-            '/camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
             '/imu/data@sensor_msgs/msg/Imu[gz.msgs.IMU'
         ],
+        output='screen'
+    )
+
+    # Dedicated Image Bridge for Camera (Handles compression natively)
+    image_bridge = Node(
+        package='ros_gz_image',
+        executable='image_bridge',
+        arguments=['/camera/image_raw'],
+        output='screen'
+    )
+    
+    # Bridge for Camera Info
+    camera_info_bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        arguments=['/camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo'],
         output='screen'
     )
 
@@ -130,6 +140,8 @@ def generate_launch_description():
         gazebo,
         spawn_entity,
         bridge,
+        image_bridge,
+        camera_info_bridge,
         diff_drive_spawner,
         joint_broad_spawner,
         left_arm_spawner,
