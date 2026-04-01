@@ -15,6 +15,7 @@ import os
 import math
 import json
 import threading
+import time
 import tf2_ros
 
 class RobotManager(Node):
@@ -31,12 +32,14 @@ class RobotManager(Node):
         self.explore_active = False
         self.vision_active = False
         self.precise_move_active = False
+        self.follow_person_active = False
         self.slam_process = None
         self.nav2_process = None
         self.camera_process = None
         self.explore_process = None
         self.vision_process = None
         self.precise_move_process = None
+        self.follow_person_process = None
 
         # Per-detector enabled flags (only meaningful when vision_active)
         self.yolo_enabled      = False
@@ -92,7 +95,8 @@ class RobotManager(Node):
         self.face_enabled_pub      = self.create_publisher(Bool, '/robot/face_enabled',       10)
         self.gesture_enabled_pub   = self.create_publisher(Bool, '/robot/gesture_enabled',    10)
         self.aruco_enabled_pub     = self.create_publisher(Bool, '/robot/aruco_enabled',      10)
-        self.precise_move_active_pub = self.create_publisher(Bool, '/robot/precise_move_active', 10)
+        self.precise_move_active_pub    = self.create_publisher(Bool, '/robot/precise_move_active',    10)
+        self.follow_person_active_pub   = self.create_publisher(Bool, '/robot/follow_person_active',   10)
         
         # Navigation status publishers
         self.nav_state_pub = self.create_publisher(String, '/robot/nav_status', 10)
@@ -145,7 +149,9 @@ class RobotManager(Node):
 
         # Precise motion — publish JSON to trigger: {"mode":"move","distance":0.5,"speed":0.15}
         self.create_subscription(String, '/robot/precise_move', self.precise_move_callback, 10)
-        self.create_service(Trigger, '/robot/stop_precise_move', self.stop_precise_move_callback)
+        self.create_service(Trigger, '/robot/stop_precise_move',     self.stop_precise_move_callback)
+        self.create_service(Trigger, '/robot/start_follow_person',   self.start_follow_person_callback)
+        self.create_service(Trigger, '/robot/stop_follow_person',    self.stop_follow_person_callback)
 
         # Location subscriptions (publish name to topic to trigger)
         self.create_subscription(String, '/robot/save_location',   self.save_location_callback,   10)
@@ -318,6 +324,17 @@ class RobotManager(Node):
         precise_move_msg = Bool()
         precise_move_msg.data = self.precise_move_active
         self.precise_move_active_pub.publish(precise_move_msg)
+
+        # Auto-detect follow_person process exit
+        if self.follow_person_active and self.follow_person_process is not None:
+            if self.follow_person_process.poll() is not None:
+                self.follow_person_process = None
+                self.follow_person_active = False
+                self.get_logger().info('Person follower stopped')
+
+        follow_msg = Bool()
+        follow_msg.data = self.follow_person_active
+        self.follow_person_active_pub.publish(follow_msg)
 
         for pub, val in [
             (self.yolo_enabled_pub,     self.yolo_enabled),
@@ -534,12 +551,20 @@ class RobotManager(Node):
                 self.get_logger().info('Camera activated in simulation mode (Gazebo camera)')
             else:
                 # Real hardware: launch v4l2_camera node
+                # Kill any orphaned camera process from a previous session
+                # (e.g. Ctrl+C on the launch file without clean shutdown)
+                subprocess.run(
+                    ['pkill', '-SIGTERM', '-f', 'v4l2_camera_node'],
+                    capture_output=True
+                )
+                time.sleep(0.8)  # wait for device to be released
+
                 from ament_index_python.packages import get_package_share_directory
                 camera_launch = os.path.join(
                     get_package_share_directory('my_bot'),
                     'launch', 'camera.launch.py'
                 )
-                
+
                 self.camera_process = subprocess.Popen([
                     'ros2', 'launch', camera_launch,
                     'use_sim_time:=false'
@@ -889,6 +914,57 @@ class RobotManager(Node):
             response.message = f'Failed to stop: {str(e)}'
         return response
 
+# ── Person follower callbacks ─────────────────────────────────────────────────
+
+    def start_follow_person_callback(self, request, response):
+        if self.follow_person_active:
+            response.success = False
+            response.message = 'Person follower already active'
+            return response
+        if not self.camera_active:
+            response.success = False
+            response.message = 'Start camera first'
+            return response
+        if not self.vision_active:
+            response.success = False
+            response.message = 'Start vision pipeline first'
+            return response
+        if not self.yolo_enabled:
+            response.success = False
+            response.message = 'Enable YOLO first'
+            return response
+        try:
+            self.follow_person_process = subprocess.Popen(
+                ['ros2', 'run', 'my_bot', 'person_follower.py'])
+            self.follow_person_active = True
+            response.success = True
+            response.message = 'Person follower started'
+            self.get_logger().info('Person follower started')
+        except Exception as e:
+            response.success = False
+            response.message = f'Failed to start person follower: {str(e)}'
+            self.get_logger().error(f'Failed to start person follower: {str(e)}')
+        return response
+
+    def stop_follow_person_callback(self, request, response):
+        if not self.follow_person_active:
+            response.success = False
+            response.message = 'Person follower not active'
+            return response
+        try:
+            if self.follow_person_process:
+                self.follow_person_process.send_signal(signal.SIGINT)
+                self.follow_person_process.wait(timeout=3)
+                self.follow_person_process = None
+            self.follow_person_active = False
+            response.success = True
+            response.message = 'Person follower stopped'
+            self.get_logger().info('Person follower stopped')
+        except Exception as e:
+            response.success = False
+            response.message = f'Failed to stop: {str(e)}'
+        return response
+
 # ── Named location helpers ────────────────────────────────────────────────────
 
     def _map_callback(self, msg: OccupancyGrid):
@@ -1086,6 +1162,8 @@ def main(args=None):
             node.vision_process.send_signal(signal.SIGINT)
         if node.precise_move_process:
             node.precise_move_process.send_signal(signal.SIGINT)
+        if node.follow_person_process:
+            node.follow_person_process.send_signal(signal.SIGINT)
         node.destroy_node()
         # Only shutdown if context is still valid
         if rclpy.ok():
