@@ -193,7 +193,7 @@ class VisionPipeline(Node):
             self.get_logger().error(
                 f'YOLO model not found: {onnx_path}\n'
                 'Export on a PC: pip install ultralytics && '
-                'yolo export model=yolov8n.pt format=onnx  '
+                'yolo export model=yolov8n.pt format=onnx imgsz=320  '
                 'then copy yolov8n.onnx to ~/models/ on RPi')
             return
         try:
@@ -206,8 +206,8 @@ class VisionPipeline(Node):
                 providers=['CPUExecutionProvider'],
             )
             self.yolo_input_name  = self.yolo_model.get_inputs()[0].name
-            self.yolo_input_size  = 640   # YOLOv8n default
-            self.get_logger().info(f'YOLO loaded: {onnx_path}')
+            self.yolo_input_size  = 320   # export with imgsz=320 for 2× faster inference
+            self.get_logger().info(f'YOLO loaded: {onnx_path} (input {self.yolo_input_size})')
         except Exception as e:
             self.get_logger().error(f'YOLO init failed: {e}')
 
