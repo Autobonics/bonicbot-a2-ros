@@ -363,7 +363,7 @@ class RobotManager(Node):
 
         # Saved locations list
         locations_msg = String()
-        locations_msg.data = json.dumps(list(self._load_locations().keys()))
+        locations_msg.data = json.dumps(self._load_locations())
         self.locations_list_pub.publish(locations_msg)
 
         # Map available on disk
