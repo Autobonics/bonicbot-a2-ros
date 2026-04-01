@@ -65,7 +65,9 @@ install(
 # Install Python scripts
 install(PROGRAMS
   scripts/robot_manager.py
-  scripts/precise_motion
+  scripts/vision_pipeline.py
+  scripts/precise_motion.py
+  scripts/person_follower.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

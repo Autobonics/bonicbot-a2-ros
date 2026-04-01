@@ -15,6 +15,7 @@ import os
 import math
 import json
 import threading
+import time
 import tf2_ros
 
 class RobotManager(Node):
@@ -29,10 +30,23 @@ class RobotManager(Node):
         self.navigation_active = False
         self.camera_active = False
         self.explore_active = False
+        self.vision_active = False
+        self.precise_move_active = False
+        self.follow_person_active = False
         self.slam_process = None
         self.nav2_process = None
         self.camera_process = None
         self.explore_process = None
+        self.vision_process = None
+        self.precise_move_process = None
+        self.follow_person_process = None
+
+        # Per-detector enabled flags (only meaningful when vision_active)
+        self.yolo_enabled      = False
+        self.pose_enabled      = False
+        self.face_enabled      = False
+        self.gesture_enabled   = False
+        self.aruco_enabled     = False
         
         # Navigation state
         self.nav_status = 'idle'  # idle, navigating, goal_reached, goal_failed, cancelled
@@ -61,12 +75,28 @@ class RobotManager(Node):
         self.nav_to_pose_client = None
         self.nav_goal_handle = None
         
+        # Vision control topic — transient-local so vision node gets current state on startup
+        vision_ctrl_qos = QoSProfile(
+            depth=1,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+        )
+        self.vision_control_pub = self.create_publisher(String, '/vision/control', vision_ctrl_qos)
+
         # Publishers for Flutter app
         self.state_pub = self.create_publisher(String, '/robot/state', 10)
         self.mapping_status_pub = self.create_publisher(Bool, '/robot/mapping_active', 10)
         self.nav_status_pub = self.create_publisher(Bool, '/robot/navigation_active', 10)
         self.camera_status_pub = self.create_publisher(Bool, '/robot/camera_active', 10)
         self.explore_status_pub = self.create_publisher(Bool, '/robot/explore_active', 10)
+        self.vision_status_pub     = self.create_publisher(Bool, '/robot/vision_active',      10)
+        self.yolo_enabled_pub      = self.create_publisher(Bool, '/robot/yolo_enabled',       10)
+        self.pose_enabled_pub      = self.create_publisher(Bool, '/robot/pose_enabled',       10)
+        self.face_enabled_pub      = self.create_publisher(Bool, '/robot/face_enabled',       10)
+        self.gesture_enabled_pub   = self.create_publisher(Bool, '/robot/gesture_enabled',    10)
+        self.aruco_enabled_pub     = self.create_publisher(Bool, '/robot/aruco_enabled',      10)
+        self.precise_move_active_pub    = self.create_publisher(Bool, '/robot/precise_move_active',    10)
+        self.follow_person_active_pub   = self.create_publisher(Bool, '/robot/follow_person_active',   10)
         
         # Navigation status publishers
         self.nav_state_pub = self.create_publisher(String, '/robot/nav_status', 10)
@@ -102,6 +132,26 @@ class RobotManager(Node):
             Trigger, '/robot/start_explore', self.start_explore_callback)
         self.stop_explore_srv = self.create_service(
             Trigger, '/robot/stop_explore', self.stop_explore_callback)
+
+        # Vision pipeline services
+        self.create_service(Trigger, '/robot/start_vision',         self.start_vision_callback)
+        self.create_service(Trigger, '/robot/stop_vision',          self.stop_vision_callback)
+        self.create_service(Trigger, '/robot/enable_yolo',          self.enable_yolo_callback)
+        self.create_service(Trigger, '/robot/disable_yolo',         self.disable_yolo_callback)
+        self.create_service(Trigger, '/robot/enable_pose',          self.enable_pose_callback)
+        self.create_service(Trigger, '/robot/disable_pose',         self.disable_pose_callback)
+        self.create_service(Trigger, '/robot/enable_face',          self.enable_face_callback)
+        self.create_service(Trigger, '/robot/disable_face',         self.disable_face_callback)
+        self.create_service(Trigger, '/robot/enable_gesture',       self.enable_gesture_callback)
+        self.create_service(Trigger, '/robot/disable_gesture',      self.disable_gesture_callback)
+        self.create_service(Trigger, '/robot/enable_aruco',         self.enable_aruco_callback)
+        self.create_service(Trigger, '/robot/disable_aruco',        self.disable_aruco_callback)
+
+        # Precise motion — publish JSON to trigger: {"mode":"move","distance":0.5,"speed":0.15}
+        self.create_subscription(String, '/robot/precise_move', self.precise_move_callback, 10)
+        self.create_service(Trigger, '/robot/stop_precise_move',     self.stop_precise_move_callback)
+        self.create_service(Trigger, '/robot/start_follow_person',   self.start_follow_person_callback)
+        self.create_service(Trigger, '/robot/stop_follow_person',    self.stop_follow_person_callback)
 
         # Location subscriptions (publish name to topic to trigger)
         self.create_subscription(String, '/robot/save_location',   self.save_location_callback,   10)
@@ -259,7 +309,44 @@ class RobotManager(Node):
         explore_msg = Bool()
         explore_msg.data = self.explore_active
         self.explore_status_pub.publish(explore_msg)
-        
+
+        vision_msg = Bool()
+        vision_msg.data = self.vision_active
+        self.vision_status_pub.publish(vision_msg)
+
+        # Auto-detect precise_move process exit
+        if self.precise_move_active and self.precise_move_process is not None:
+            if self.precise_move_process.poll() is not None:
+                self.precise_move_process = None
+                self.precise_move_active = False
+                self.get_logger().info('Precise move completed')
+
+        precise_move_msg = Bool()
+        precise_move_msg.data = self.precise_move_active
+        self.precise_move_active_pub.publish(precise_move_msg)
+
+        # Auto-detect follow_person process exit
+        if self.follow_person_active and self.follow_person_process is not None:
+            if self.follow_person_process.poll() is not None:
+                self.follow_person_process = None
+                self.follow_person_active = False
+                self.get_logger().info('Person follower stopped')
+
+        follow_msg = Bool()
+        follow_msg.data = self.follow_person_active
+        self.follow_person_active_pub.publish(follow_msg)
+
+        for pub, val in [
+            (self.yolo_enabled_pub,     self.yolo_enabled),
+            (self.pose_enabled_pub,     self.pose_enabled),
+            (self.face_enabled_pub,     self.face_enabled),
+            (self.gesture_enabled_pub,  self.gesture_enabled),
+            (self.aruco_enabled_pub,    self.aruco_enabled),
+        ]:
+            m = Bool()
+            m.data = val
+            pub.publish(m)
+
         # Navigation status
         nav_state_msg = String()
         nav_state_msg.data = self.nav_status
@@ -352,11 +439,9 @@ class RobotManager(Node):
         try:
             from ament_index_python.packages import get_package_share_directory
             
-            # Logic to select the correct params file
-            yaml_name = 'nav2_params_sim.yaml' if self.use_sim_time else 'nav2_params.yaml'
             params_file = os.path.join(
                 get_package_share_directory('my_bot'),
-                'config', yaml_name
+                'config', 'nav2_params.yaml'
             )
             
             # If mapping is active, use online SLAM navigation
@@ -466,12 +551,20 @@ class RobotManager(Node):
                 self.get_logger().info('Camera activated in simulation mode (Gazebo camera)')
             else:
                 # Real hardware: launch v4l2_camera node
+                # Kill any orphaned camera process from a previous session
+                # (e.g. Ctrl+C on the launch file without clean shutdown)
+                subprocess.run(
+                    ['pkill', '-SIGTERM', '-f', 'v4l2_camera_node'],
+                    capture_output=True
+                )
+                time.sleep(0.8)  # wait for device to be released
+
                 from ament_index_python.packages import get_package_share_directory
                 camera_launch = os.path.join(
                     get_package_share_directory('my_bot'),
                     'launch', 'camera.launch.py'
                 )
-                
+
                 self.camera_process = subprocess.Popen([
                     'ros2', 'launch', camera_launch,
                     'use_sim_time:=false'
@@ -497,6 +590,11 @@ class RobotManager(Node):
             return response
         
         try:
+            # Auto-stop vision pipeline first (it depends on camera frames)
+            if self.vision_active:
+                self._stop_vision_internal()
+                self.get_logger().info('Vision pipeline auto-stopped (camera stopping)')
+
             # In simulation, just deactivate flag (can't stop Gazebo camera)
             if self.use_sim_time:
                 self.camera_active = False
@@ -509,17 +607,17 @@ class RobotManager(Node):
                     self.camera_process.send_signal(signal.SIGINT)
                     self.camera_process.wait(timeout=5)
                     self.camera_process = None
-                
+
                 self.camera_active = False
                 response.success = True
                 response.message = 'Camera stopped successfully (v4l2_camera hardware)'
                 self.get_logger().info('Camera node stopped (real hardware)')
-            
+
         except Exception as e:
             response.success = False
             response.message = f'Failed to stop camera: {str(e)}'
             self.get_logger().error(f'Failed to stop camera: {str(e)}')
-        
+
         return response
 
     def _monitor_explore_output(self):
@@ -597,6 +695,274 @@ class RobotManager(Node):
             response.message = f'Failed to stop exploration: {str(e)}'
             self.get_logger().error(f'Failed to stop explore_lite: {str(e)}')
 
+        return response
+
+# ── Vision pipeline callbacks ─────────────────────────────────────────────────
+
+    def _publish_vision_control(self):
+        """Publish current detector config to /vision/control (transient-local)."""
+        msg = String()
+        msg.data = json.dumps({
+            'yolo':      self.yolo_enabled,
+            'pose':      self.pose_enabled,
+            'face':      self.face_enabled,
+            'gesture':   self.gesture_enabled,
+            'aruco':     self.aruco_enabled,
+        })
+        self.vision_control_pub.publish(msg)
+
+    def start_vision_callback(self, request, response):
+        if self.vision_active:
+            response.success = False
+            response.message = 'Vision pipeline already active'
+            return response
+        if not self.camera_active:
+            response.success = False
+            response.message = 'Start camera first before starting vision'
+            return response
+        try:
+            self.vision_process = subprocess.Popen(
+                ['ros2', 'run', 'my_bot', 'vision_pipeline.py'])
+            self.vision_active = True
+            self._publish_vision_control()   # send current (all-off) config on startup
+            response.success = True
+            response.message = 'Vision pipeline started'
+            self.get_logger().info('Vision pipeline started')
+        except Exception as e:
+            response.success = False
+            response.message = f'Failed to start vision: {str(e)}'
+            self.get_logger().error(f'Failed to start vision: {str(e)}')
+        return response
+
+    def _stop_vision_internal(self):
+        """Stop vision process and reset all detector flags. Safe to call even if not active."""
+        if self.vision_process:
+            self.vision_process.send_signal(signal.SIGINT)
+            self.vision_process.wait(timeout=5)
+            self.vision_process = None
+        self.vision_active   = False
+        self.yolo_enabled    = False
+        self.pose_enabled    = False
+        self.face_enabled    = False
+        self.gesture_enabled = False
+        self.aruco_enabled   = False
+
+    def stop_vision_callback(self, request, response):
+        if not self.vision_active:
+            response.success = False
+            response.message = 'Vision not active'
+            return response
+        try:
+            self._stop_vision_internal()
+            response.success = True
+            response.message = 'Vision pipeline stopped'
+            self.get_logger().info('Vision pipeline stopped')
+        except Exception as e:
+            response.success = False
+            response.message = f'Failed to stop vision: {str(e)}'
+            self.get_logger().error(f'Failed to stop vision: {str(e)}')
+        return response
+
+    def enable_yolo_callback(self, request, response):
+        if not self.vision_active:
+            response.success = False
+            response.message = 'Start vision pipeline first'
+            return response
+        self.yolo_enabled = True
+        self._publish_vision_control()
+        response.success = True
+        response.message = 'YOLO enabled'
+        return response
+
+    def disable_yolo_callback(self, request, response):
+        self.yolo_enabled = False
+        self._publish_vision_control()
+        response.success = True
+        response.message = 'YOLO disabled'
+        return response
+
+    def enable_pose_callback(self, request, response):
+        if not self.vision_active:
+            response.success = False
+            response.message = 'Start vision pipeline first'
+            return response
+        self.pose_enabled = True
+        self._publish_vision_control()
+        response.success = True
+        response.message = 'Body pose enabled'
+        return response
+
+    def disable_pose_callback(self, request, response):
+        self.pose_enabled = False
+        self._publish_vision_control()
+        response.success = True
+        response.message = 'Body pose disabled'
+        return response
+
+    def enable_face_callback(self, request, response):
+        if not self.vision_active:
+            response.success = False
+            response.message = 'Start vision pipeline first'
+            return response
+        self.face_enabled = True
+        self._publish_vision_control()
+        response.success = True
+        response.message = 'Face detection enabled'
+        return response
+
+    def disable_face_callback(self, request, response):
+        self.face_enabled = False
+        self._publish_vision_control()
+        response.success = True
+        response.message = 'Face detection disabled'
+        return response
+
+    def enable_gesture_callback(self, request, response):
+        if not self.vision_active:
+            response.success = False
+            response.message = 'Start vision pipeline first'
+            return response
+        self.gesture_enabled = True
+        self._publish_vision_control()
+        response.success = True
+        response.message = 'Gesture recognition enabled'
+        return response
+
+    def disable_gesture_callback(self, request, response):
+        self.gesture_enabled = False
+        self._publish_vision_control()
+        response.success = True
+        response.message = 'Gesture recognition disabled'
+        return response
+
+    def enable_aruco_callback(self, request, response):
+        if not self.vision_active:
+            response.success = False
+            response.message = 'Start vision pipeline first'
+            return response
+        self.aruco_enabled = True
+        self._publish_vision_control()
+        response.success = True
+        response.message = 'ArUco enabled'
+        return response
+
+    def disable_aruco_callback(self, request, response):
+        self.aruco_enabled = False
+        self._publish_vision_control()
+        response.success = True
+        response.message = 'ArUco disabled'
+        return response
+
+# ── Precise motion callbacks ─────────────────────────────────────────────────
+
+    def precise_move_callback(self, msg: String):
+        """Launch precise_motion.py with params from JSON string.
+        Publish to /robot/precise_move: {"mode":"move","distance":0.5,"speed":0.15}
+        or {"mode":"rotate","angle":90.0,"speed":30.0,"use_nav2":false}
+        """
+        if self.precise_move_active:
+            self.get_logger().warn('Precise move already active — ignoring')
+            return
+        try:
+            cfg = json.loads(msg.data)
+        except json.JSONDecodeError as e:
+            self.get_logger().error(f'precise_move: bad JSON: {e}')
+            return
+
+        mode = cfg.get('mode', 'move')
+        speed = cfg.get('speed', 0.0)
+        use_nav2 = cfg.get('use_nav2', True)
+
+        cmd = [
+            'ros2', 'run', 'my_bot', 'precise_motion.py',
+            '--ros-args',
+            '-p', f'mode:={mode}',
+            '-p', f'speed:={float(speed)}',
+            '-p', f'use_nav2:={str(use_nav2).lower()}',
+        ]
+
+        if mode == 'move':
+            distance = cfg.get('distance', 0.0)
+            cmd += ['-p', f'distance:={float(distance)}']
+        elif mode == 'rotate':
+            angle = cfg.get('angle', 0.0)
+            cmd += ['-p', f'angle:={float(angle)}']
+
+        try:
+            self.precise_move_process = subprocess.Popen(cmd)
+            self.precise_move_active = True
+            self.get_logger().info(f'Precise move started: {cfg}')
+        except Exception as e:
+            self.get_logger().error(f'Failed to start precise_motion: {e}')
+
+    def stop_precise_move_callback(self, request, response):
+        """Stop an in-progress precise move."""
+        if not self.precise_move_active:
+            response.success = False
+            response.message = 'No precise move active'
+            return response
+        try:
+            if self.precise_move_process:
+                self.precise_move_process.send_signal(signal.SIGINT)
+                self.precise_move_process.wait(timeout=3)
+                self.precise_move_process = None
+            self.precise_move_active = False
+            response.success = True
+            response.message = 'Precise move stopped'
+        except Exception as e:
+            response.success = False
+            response.message = f'Failed to stop: {str(e)}'
+        return response
+
+# ── Person follower callbacks ─────────────────────────────────────────────────
+
+    def start_follow_person_callback(self, request, response):
+        if self.follow_person_active:
+            response.success = False
+            response.message = 'Person follower already active'
+            return response
+        if not self.camera_active:
+            response.success = False
+            response.message = 'Start camera first'
+            return response
+        if not self.vision_active:
+            response.success = False
+            response.message = 'Start vision pipeline first'
+            return response
+        if not self.yolo_enabled:
+            response.success = False
+            response.message = 'Enable YOLO first'
+            return response
+        try:
+            self.follow_person_process = subprocess.Popen(
+                ['ros2', 'run', 'my_bot', 'person_follower.py'])
+            self.follow_person_active = True
+            response.success = True
+            response.message = 'Person follower started'
+            self.get_logger().info('Person follower started')
+        except Exception as e:
+            response.success = False
+            response.message = f'Failed to start person follower: {str(e)}'
+            self.get_logger().error(f'Failed to start person follower: {str(e)}')
+        return response
+
+    def stop_follow_person_callback(self, request, response):
+        if not self.follow_person_active:
+            response.success = False
+            response.message = 'Person follower not active'
+            return response
+        try:
+            if self.follow_person_process:
+                self.follow_person_process.send_signal(signal.SIGINT)
+                self.follow_person_process.wait(timeout=3)
+                self.follow_person_process = None
+            self.follow_person_active = False
+            response.success = True
+            response.message = 'Person follower stopped'
+            self.get_logger().info('Person follower stopped')
+        except Exception as e:
+            response.success = False
+            response.message = f'Failed to stop: {str(e)}'
         return response
 
 # ── Named location helpers ────────────────────────────────────────────────────
@@ -792,6 +1158,12 @@ def main(args=None):
             node.camera_process.send_signal(signal.SIGINT)
         if node.explore_process:
             node.explore_process.send_signal(signal.SIGINT)
+        if node.vision_process:
+            node.vision_process.send_signal(signal.SIGINT)
+        if node.precise_move_process:
+            node.precise_move_process.send_signal(signal.SIGINT)
+        if node.follow_person_process:
+            node.follow_person_process.send_signal(signal.SIGINT)
         node.destroy_node()
         # Only shutdown if context is still valid
         if rclpy.ok():
