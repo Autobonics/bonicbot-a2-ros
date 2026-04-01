@@ -46,7 +46,7 @@
         <origin xyz="0 ${body_width/2 + shoulder_radius} ${body_height * 0.944444}" rpy="0 0 0"/>
         <axis xyz="0 -1 0"/>
         <limit lower="-0.785" upper="3.14" effort="10.0" velocity="2.0"/>
-        <dynamics damping="10.0" friction="2.0"/>
+        <dynamics damping="0.5" friction="0.1"/>
     </joint>
 
     <link name="left_shoulder">
@@ -100,6 +100,7 @@
 
     <gazebo reference="left_upper_arm">
         <material>Gazebo/LightGrey</material>
+        <self_collide>false</self_collide>
     </gazebo>
 
     <!-- Left Elbow Joint -->
@@ -109,7 +110,7 @@
         <origin xyz="0 0 -${upper_arm_length/2}" rpy="0 0 0"/>
         <axis xyz="0 -1 0"/>
         <limit lower="0" upper="0.873" effort="5.0" velocity="2.0"/>
-        <dynamics damping="10.0" friction="2.0"/>
+        <dynamics damping="0.5" friction="0.1"/>
     </joint>
 
     <link name="left_forearm">
@@ -133,6 +134,7 @@
 
     <gazebo reference="left_forearm">
         <material>Gazebo/LightGrey</material>
+        <self_collide>false</self_collide>
     </gazebo>
 
 
@@ -145,7 +147,7 @@
         <origin xyz="0 ${-(body_width/2 + shoulder_radius)} ${body_height * 0.944444}" rpy="0 0 0"/>
         <axis xyz="0 -1 0"/>
         <limit lower="-0.785" upper="3.14" effort="10.0" velocity="2.0"/>
-        <dynamics damping="10.0" friction="2.0"/>
+        <dynamics damping="0.5" friction="0.1"/>
     </joint>
 
     <link name="right_shoulder">
@@ -199,6 +201,7 @@
 
     <gazebo reference="right_upper_arm">
         <material>Gazebo/LightGrey</material>
+        <self_collide>false</self_collide>
     </gazebo>
 
     <!-- Right Elbow Joint -->
@@ -208,7 +211,7 @@
         <origin xyz="0 0 -${upper_arm_length/2}" rpy="0 0 0"/>
         <axis xyz="0 -1 0"/>
         <limit lower="0" upper="0.873" effort="5.0" velocity="2.0"/>
-        <dynamics damping="10.0" friction="2.0"/>
+        <dynamics damping="0.5" friction="0.1"/>
     </joint>
 
     <link name="right_forearm">
@@ -232,6 +235,7 @@
 
     <gazebo reference="right_forearm">
         <material>Gazebo/LightGrey</material>
+        <self_collide>false</self_collide>
     </gazebo>
 
 </robot>

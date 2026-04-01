@@ -5,7 +5,7 @@
     <!-- SIMULATION -->
     <ros2_control name="GazeboSystem" type="system">
       <hardware>
-        <plugin>gazebo_ros2_control/GazeboSystem</plugin>
+        <plugin>gz_ros2_control/GazeboSimSystem</plugin>
       </hardware>
       <joint name="left_wheel_joint">
         <command_interface name="velocity">
@@ -86,7 +86,7 @@
     </ros2_control>
 
     <gazebo>
-      <plugin filename="libgazebo_ros2_control.so" name="gazebo_ros2_control">
+      <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
         <parameters>$(find my_bot)/config/my_controllers.yaml</parameters>
       </plugin>
     </gazebo>
@@ -99,7 +99,7 @@
         <plugin>my_bot/DiffBotSystemHardware</plugin>
         <param name="serial_port">/dev/ttyAMA1</param>
         <param name="serial_baud">921600</param>
-        <param name="encoder_cpr">14040.0</param>
+        <param name="encoder_cpr">$(optenv ENCODER_CPR 14040.0)</param>
         <param name="wheel_radius">0.06</param>   <!-- 0.128m diameter / 2 -->
         <param name="max_velocity">10.47</param>   <!-- 100 RPM = 10.47 rad/s -->
       </hardware>
