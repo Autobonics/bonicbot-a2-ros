@@ -392,8 +392,11 @@ class VisionPipeline(Node):
 
             # ── Nearest person tracking ───────────────────────────────────────
             img_h, img_w = frame.shape[:2]
-            # Use calibrated focal length if available, else rough estimate (~90° FOV)
-            fx = self.camera_matrix[0, 0] if self.camera_matrix is not None else img_w * 1.1
+            # Use calibrated focal length only if valid (>0); Gazebo sends uncalibrated K=zeros
+            if self.camera_matrix is not None and self.camera_matrix[0, 0] > 10.0:
+                fx = self.camera_matrix[0, 0]
+            else:
+                fx = img_w * 1.1   # rough estimate for ~90° FOV
             persons = [d for d in detections if d['class'] == 'person']
             nearest = None
             for i, p in enumerate(persons):
