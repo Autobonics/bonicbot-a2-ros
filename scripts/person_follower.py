@@ -31,9 +31,9 @@ STOP_DIST        = 0.5    # metres — stop if closer than this
 LINEAR_DEADBAND  = 0.5    # metres — tolerate ±0.5 m around TARGET_DIST (0.5–1.5 m ok)
 ANGULAR_DEADBAND = math.radians(10)  # rad — don't turn if within ±10° of centre
 MAX_LINEAR       = 0.2    # m/s
-MAX_ANGULAR      = 0.4    # rad/s
+MAX_ANGULAR      = 0.2    # rad/s
 KP_LINEAR        = 0.4    # proportional gain for distance error
-KP_ANGULAR       = 0.5    # proportional gain for angle error
+KP_ANGULAR       = 0.3    # proportional gain for angle error
 LOST_TIMEOUT     = 2.0    # seconds before stopping when person disappears
 
 
@@ -41,9 +41,9 @@ class PersonFollower(Node):
     def __init__(self):
         super().__init__('person_follower')
 
-        self._last_distance = None
-        self._last_angle    = None
-        self._last_seen     = None   # time of last valid detection
+        self._last_distance  = None
+        self._last_angle     = None
+        self._last_seen      = None   # time of last valid detection
 
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.create_subscription(String, '/vision/nearest_person', self._cb, 10)
@@ -67,9 +67,9 @@ class PersonFollower(Node):
         if data is None:
             return
 
-        self._last_distance = data.get('distance', 0.0)
-        self._last_angle    = data.get('angle',    0.0)
-        self._last_seen     = time.time()
+        self._last_distance  = data.get('distance', 0.0)
+        self._last_angle     = data.get('angle',    0.0)
+        self._last_seen      = time.time()
 
     def _control_loop(self):
         """10 Hz control loop — runs independently of YOLO update rate."""
@@ -82,9 +82,9 @@ class PersonFollower(Node):
         # Person lost — stop and reset
         if time.time() - self._last_seen > LOST_TIMEOUT:
             self.cmd_pub.publish(twist)
-            self._last_seen     = None
-            self._last_distance = None
-            self._last_angle    = None
+            self._last_seen      = None
+            self._last_distance  = None
+            self._last_angle     = None
             self.get_logger().info('Person lost — stopped')
             return
 
@@ -97,13 +97,13 @@ class PersonFollower(Node):
 
         dist_error = distance - TARGET_DIST
 
+        if abs(angle) > ANGULAR_DEADBAND:
+            twist.angular.z = max(-MAX_ANGULAR, min(-KP_ANGULAR * angle, MAX_ANGULAR))
+
         if dist_error > LINEAR_DEADBAND:
             twist.linear.x = min(KP_LINEAR * dist_error, MAX_LINEAR)
         elif dist_error < -LINEAR_DEADBAND:
             twist.linear.x = max(KP_LINEAR * dist_error, -MAX_LINEAR * 0.5)
-
-        if abs(angle) > ANGULAR_DEADBAND:
-            twist.angular.z = max(-MAX_ANGULAR, min(-KP_ANGULAR * angle, MAX_ANGULAR))
 
         self.cmd_pub.publish(twist)
 
