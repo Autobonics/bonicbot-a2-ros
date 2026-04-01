@@ -29,7 +29,8 @@ import time
 TARGET_DIST      = 1.0    # metres — desired follow distance
 STOP_DIST        = 0.5    # metres — stop if closer than this
 LINEAR_DEADBAND  = 0.5    # metres — tolerate ±0.5 m around TARGET_DIST (0.5–1.5 m ok)
-ANGULAR_DEADBAND = math.radians(10)  # rad — don't turn if within ±10° of centre
+ANGULAR_DEADBAND = math.radians(7)  # rad — don't turn if within ±10° of centre
+LINEAR_ANGLE_MAX = math.radians(30)  # rad — suppress linear when angle exceeds ±30°
 MAX_LINEAR       = 0.2    # m/s
 MAX_ANGULAR      = 0.2    # rad/s
 KP_LINEAR        = 0.4    # proportional gain for distance error
@@ -98,12 +99,14 @@ class PersonFollower(Node):
         dist_error = distance - TARGET_DIST
 
         if abs(angle) > ANGULAR_DEADBAND:
+            # Not facing person — rotate only, no forward movement
             twist.angular.z = max(-MAX_ANGULAR, min(-KP_ANGULAR * angle, MAX_ANGULAR))
-
-        if dist_error > LINEAR_DEADBAND:
-            twist.linear.x = min(KP_LINEAR * dist_error, MAX_LINEAR)
-        elif dist_error < -LINEAR_DEADBAND:
-            twist.linear.x = max(KP_LINEAR * dist_error, -MAX_LINEAR * 0.5)
+        else:
+            # Facing person (within ±10°) — move forward/backward only
+            if dist_error > LINEAR_DEADBAND:
+                twist.linear.x = min(KP_LINEAR * dist_error, MAX_LINEAR)
+            elif dist_error < -LINEAR_DEADBAND:
+                twist.linear.x = max(KP_LINEAR * dist_error, -MAX_LINEAR * 0.5)
 
         self.cmd_pub.publish(twist)
 
