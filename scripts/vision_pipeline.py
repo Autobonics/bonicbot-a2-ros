@@ -7,8 +7,8 @@ Control: subscribe to /vision/control (JSON String, transient-local)
   e.g. {"yolo": true, "pose": false, "face": true, "gesture": true, "aruco": false}
 
 Publishes:
-  /vision/detections        std_msgs/String  JSON — YOLO object list
-  /vision/person_pose       std_msgs/String  JSON — MediaPipe body pose landmarks (33 pts)
+  /vision/yolo_detections   std_msgs/String  JSON — YOLO object list
+  /vision/pose_landmarks    std_msgs/String  JSON — MediaPipe body pose landmarks (33 pts)
   /vision/face_detections   std_msgs/String  JSON — face bounding boxes + keypoints
   /vision/gestures          std_msgs/String  JSON — hand gestures + 21-point hand landmarks
   /vision/aruco_markers     geometry_msgs/PoseArray — 3D marker poses (camera frame)
@@ -125,8 +125,8 @@ class VisionPipeline(Node):
         self.create_subscription(String,     '/vision/control',     self.control_callback,     ctrl_qos)
 
         # ── Publishers ────────────────────────────────────────────────────────
-        self.detections_pub      = self.create_publisher(String,    '/vision/detections',       10)
-        self.pose_pub            = self.create_publisher(String,    '/vision/person_pose',      10)
+        self.detections_pub      = self.create_publisher(String,    '/vision/yolo_detections',  10)
+        self.pose_pub            = self.create_publisher(String,    '/vision/pose_landmarks',   10)
         self.face_pub            = self.create_publisher(String,    '/vision/face_detections',  10)
         self.gestures_pub        = self.create_publisher(String,    '/vision/gestures',         10)
         self.aruco_pub           = self.create_publisher(PoseArray, '/vision/aruco_markers',    10)

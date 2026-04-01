@@ -826,9 +826,6 @@ class RobotManager(Node):
         Publish to /robot/precise_move: {"mode":"move","distance":0.5,"speed":0.15}
         or {"mode":"rotate","angle":90.0,"speed":30.0,"use_nav2":false}
         """
-        import traceback
-        self.get_logger().warn(f'[DEBUG] precise_move triggered: "{msg.data}"')
-        self.get_logger().warn(f'[DEBUG] stack:\n{"".join(traceback.format_stack())}')
         if self.precise_move_active:
             self.get_logger().warn('Precise move already active — ignoring')
             return
