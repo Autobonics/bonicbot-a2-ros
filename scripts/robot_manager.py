@@ -565,6 +565,11 @@ class RobotManager(Node):
             return response
         
         try:
+            # Auto-stop vision pipeline first (it depends on camera frames)
+            if self.vision_active:
+                self._stop_vision_internal()
+                self.get_logger().info('Vision pipeline auto-stopped (camera stopping)')
+
             # In simulation, just deactivate flag (can't stop Gazebo camera)
             if self.use_sim_time:
                 self.camera_active = False
@@ -577,17 +582,17 @@ class RobotManager(Node):
                     self.camera_process.send_signal(signal.SIGINT)
                     self.camera_process.wait(timeout=5)
                     self.camera_process = None
-                
+
                 self.camera_active = False
                 response.success = True
                 response.message = 'Camera stopped successfully (v4l2_camera hardware)'
                 self.get_logger().info('Camera node stopped (real hardware)')
-            
+
         except Exception as e:
             response.success = False
             response.message = f'Failed to stop camera: {str(e)}'
             self.get_logger().error(f'Failed to stop camera: {str(e)}')
-        
+
         return response
 
     def _monitor_explore_output(self):
@@ -704,22 +709,26 @@ class RobotManager(Node):
             self.get_logger().error(f'Failed to start vision: {str(e)}')
         return response
 
+    def _stop_vision_internal(self):
+        """Stop vision process and reset all detector flags. Safe to call even if not active."""
+        if self.vision_process:
+            self.vision_process.send_signal(signal.SIGINT)
+            self.vision_process.wait(timeout=5)
+            self.vision_process = None
+        self.vision_active   = False
+        self.yolo_enabled    = False
+        self.pose_enabled    = False
+        self.face_enabled    = False
+        self.gesture_enabled = False
+        self.aruco_enabled   = False
+
     def stop_vision_callback(self, request, response):
         if not self.vision_active:
             response.success = False
             response.message = 'Vision not active'
             return response
         try:
-            if self.vision_process:
-                self.vision_process.send_signal(signal.SIGINT)
-                self.vision_process.wait(timeout=5)
-                self.vision_process = None
-            self.vision_active     = False
-            self.yolo_enabled      = False
-            self.pose_enabled = False
-            self.face_enabled      = False
-            self.gesture_enabled   = False
-            self.aruco_enabled     = False
+            self._stop_vision_internal()
             response.success = True
             response.message = 'Vision pipeline stopped'
             self.get_logger().info('Vision pipeline stopped')
