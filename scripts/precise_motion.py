@@ -1,12 +1,6 @@
 #!/usr/bin/env python3
 """Precise distance or rotation movement using EKF odometry (/odometry/filtered).
 
-If Nav2 is active (/robot/navigation_active == true), uses Nav2 behavior actions:
-  - move   → /drive_on_heading  (nav2_msgs/action/DriveOnHeading)
-  - rotate → /spin              (nav2_msgs/action/Spin)
-
-Otherwise falls back to direct cmd_vel control via odometry feedback.
-
 Parameters
 ----------
 mode       : 'move' | 'rotate'  (required)
@@ -27,17 +21,16 @@ ros2 run my_bot precise_motion --ros-args -p mode:=rotate -p angle:=90.0
 
 # Rotate 90° clockwise
 ros2 run my_bot precise_motion --ros-args -p mode:=rotate -p angle:=-90.0
+
+# Rotate 45° CW at 20 °/s
+ros2 run my_bot precise_motion --ros-args -p mode:=rotate -p angle:=-45.0 -p speed:=20.0
 """
 
 import math
 import rclpy
 from rclpy.node import Node
-from rclpy.action import ActionClient
-from builtin_interfaces.msg import Duration
-from geometry_msgs.msg import Twist, Point
+from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
-from std_msgs.msg import Bool
-from nav2_msgs.action import DriveOnHeading, Spin
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -55,32 +48,20 @@ def _wrap(angle: float) -> float:
     return angle
 
 
-def _secs_to_duration(secs: float) -> Duration:
-    d = Duration()
-    d.sec = int(secs)
-    d.nanosec = int((secs - d.sec) * 1e9)
-    return d
-
-
 # ── node ─────────────────────────────────────────────────────────────────────
 
 class PreciseMotion(Node):
     def __init__(self):
         super().__init__('precise_motion')
 
-        self.declare_parameter('mode',      'move')
-        self.declare_parameter('distance',  1.0)    # metres
-        self.declare_parameter('angle',     90.0)   # degrees
-        self.declare_parameter('speed',     0.0)    # 0 = use default per mode
-        self.declare_parameter('use_nav2',  True)   # False = always use cmd_vel
+        self.declare_parameter('mode',     'move')
+        self.declare_parameter('distance', 1.0)    # metres
+        self.declare_parameter('angle',    90.0)   # degrees
+        self.declare_parameter('speed',    0.0)    # 0 = use default per mode
 
-        self._mode       = self.get_parameter('mode').value
-        self._use_nav2   = self.get_parameter('use_nav2').value
-        self._done       = False
-        self._start      = None   # (x, y) for move | yaw for rotate
-        self._nav2_active       = False
-        self._nav2_status_ready = False   # True once we've received at least one status msg
-        self._nav2_triggered    = False
+        self._mode  = self.get_parameter('mode').value
+        self._done  = False
+        self._start = None   # (x, y) for move | yaw for rotate
 
         raw_speed = self.get_parameter('speed').value
 
@@ -110,102 +91,17 @@ class PreciseMotion(Node):
         self._cmd_pub  = self.create_publisher(Twist, '/cmd_vel', 10)
         self._odom_sub = self.create_subscription(
             Odometry, '/odometry/filtered', self._odom_cb, 10)
-        self._nav2_sub = self.create_subscription(
-            Bool, '/robot/navigation_active', self._nav2_status_cb, 10)
-
-        self._drive_client = ActionClient(self, DriveOnHeading, 'drive_on_heading')
-        self._spin_client  = ActionClient(self, Spin, 'spin')
 
     # ── callbacks ────────────────────────────────────────────────────────────
-
-    def _nav2_status_cb(self, msg: Bool):
-        self._nav2_active = msg.data
-        self._nav2_status_ready = True
 
     def _odom_cb(self, msg: Odometry):
         if self._done:
             return
 
-        # Wait until we know Nav2 status before deciding which path to take
-        if self._use_nav2 and not self._nav2_status_ready:
-            return
-
-        if self._use_nav2 and self._nav2_active:
-            if not self._nav2_triggered:
-                self._nav2_triggered = True
-                self._execute_via_nav2()
-            return
-
-        # Fallback: direct cmd_vel control
         if self._mode == 'move':
             self._handle_move(msg)
         else:
             self._handle_rotate(msg)
-
-    # ── Nav2 behavior actions ────────────────────────────────────────────────
-
-    def _execute_via_nav2(self):
-        if self._mode == 'move':
-            client = self._drive_client
-            if not client.wait_for_server(timeout_sec=5.0):
-                self.get_logger().warn('drive_on_heading server not available — falling back to cmd_vel')
-                self._nav2_active = False
-                self._nav2_triggered = False
-                return
-
-            # Estimate time allowance: distance / speed + 10s buffer
-            time_allowance = abs(self._target) / self._speed + 10.0
-
-            goal = DriveOnHeading.Goal()
-            goal.target = Point(x=self._target, y=0.0, z=0.0)
-            goal.speed  = self._speed if self._target >= 0 else -self._speed
-            goal.time_allowance = _secs_to_duration(time_allowance)
-
-            self.get_logger().info(
-                f'Nav2 DriveOnHeading: {self._target:.3f} m @ {self._speed:.2f} m/s'
-            )
-            future = client.send_goal_async(goal)
-            future.add_done_callback(self._goal_response_cb)
-
-        elif self._mode == 'rotate':
-            client = self._spin_client
-            if not client.wait_for_server(timeout_sec=5.0):
-                self.get_logger().warn('spin server not available — falling back to cmd_vel')
-                self._nav2_active = False
-                self._nav2_triggered = False
-                return
-
-            # Estimate time allowance: angle / speed + 10s buffer
-            time_allowance = abs(self._target) / self._speed + 10.0
-
-            goal = Spin.Goal()
-            goal.target_yaw     = self._target   # radians, sign encodes direction
-            goal.time_allowance = _secs_to_duration(time_allowance)
-
-            self.get_logger().info(
-                f'Nav2 Spin: {math.degrees(self._target):.1f}°'
-            )
-            future = client.send_goal_async(goal)
-            future.add_done_callback(self._goal_response_cb)
-
-    def _goal_response_cb(self, future):
-        goal_handle = future.result()
-        if not goal_handle.accepted:
-            self.get_logger().error('Nav2 goal rejected')
-            self._done = True
-            return
-        self.get_logger().info('Nav2 goal accepted — waiting for result')
-        goal_handle.get_result_async().add_done_callback(self._result_cb)
-
-    def _result_cb(self, future):
-        status = future.result().status
-        if status == 4:  # SUCCEEDED
-            self.get_logger().info('Nav2: motion completed successfully')
-        else:
-            self.get_logger().warn(f'Nav2: motion ended with status {status}')
-        self._done = True
-
-    # ── cmd_vel fallback ─────────────────────────────────────────────────────
 
     def _handle_move(self, msg: Odometry):
         x = msg.pose.pose.position.x
@@ -213,7 +109,7 @@ class PreciseMotion(Node):
 
         if self._start is None:
             self._start = (x, y)
-            self.get_logger().info('Start pose latched (cmd_vel mode).')
+            self.get_logger().info('Start pose latched.')
             return
 
         traveled = math.sqrt((x - self._start[0]) ** 2 + (y - self._start[1]) ** 2)
@@ -230,7 +126,7 @@ class PreciseMotion(Node):
 
         if self._start is None:
             self._start = yaw
-            self.get_logger().info(f'Start yaw latched (cmd_vel mode): {math.degrees(yaw):.1f}°')
+            self.get_logger().info(f'Start yaw latched: {math.degrees(yaw):.1f}°')
             return
 
         rotated = _wrap(yaw - self._start)
