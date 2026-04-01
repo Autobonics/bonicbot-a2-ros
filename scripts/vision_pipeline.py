@@ -18,6 +18,7 @@ Publishes:
   /vision/face_active       std_msgs/Bool
   /vision/gesture_active    std_msgs/Bool
   /vision/aruco_active      std_msgs/Bool
+  /vision/nearest_person    std_msgs/String  JSON — nearest detected person: {"distance": 1.2, "angle": -0.1, "id": 0} or null
 
 Gesture model required at ~/models/gesture_recognizer.task
   Download: https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task
@@ -49,6 +50,9 @@ try:
     _ORT_LIB = True
 except ImportError:
     _ORT_LIB = False
+
+# Average adult shoulder width used for distance estimation
+_PERSON_WIDTH_M = 0.45
 
 # COCO class names (80 classes — YOLOv8 default)
 _COCO_CLASSES = [
@@ -136,6 +140,7 @@ class VisionPipeline(Node):
         self.face_active_pub     = self.create_publisher(Bool,      '/vision/face_active',      10)
         self.gesture_active_pub  = self.create_publisher(Bool,      '/vision/gesture_active',   10)
         self.aruco_active_pub    = self.create_publisher(Bool,      '/vision/aruco_active',     10)
+        self.nearest_person_pub  = self.create_publisher(String,    '/vision/nearest_person',   10)
 
         self.create_timer(1.0, self.publish_status)
         self.get_logger().info('Vision Pipeline ready (all detectors off)')
@@ -384,6 +389,25 @@ class VisionPipeline(Node):
             msg = String()
             msg.data = json.dumps(detections)
             self.detections_pub.publish(msg)
+
+            # ── Nearest person tracking ───────────────────────────────────────
+            img_h, img_w = frame.shape[:2]
+            # Use calibrated focal length if available, else rough estimate (~90° FOV)
+            fx = self.camera_matrix[0, 0] if self.camera_matrix is not None else img_w * 1.1
+            persons = [d for d in detections if d['class'] == 'person']
+            nearest = None
+            for i, p in enumerate(persons):
+                bw_px = p['bbox'][2] * img_w   # normalised width → pixels
+                if bw_px < 1:
+                    continue
+                dist  = round(_PERSON_WIDTH_M * fx / bw_px, 2)
+                cx_offset = (p['bbox'][0] - 0.5) * img_w   # px from image centre
+                angle = round(math.atan2(cx_offset, fx), 4)
+                if nearest is None or dist < nearest['distance']:
+                    nearest = {'distance': dist, 'angle': angle, 'id': i}
+            np_msg = String()
+            np_msg.data = json.dumps(nearest)
+            self.nearest_person_pub.publish(np_msg)
         except Exception as e:
             self.get_logger().error(f'YOLO error: {e}')
 
