@@ -32,14 +32,14 @@ class RobotManager(Node):
         self.explore_active = False
         self.vision_active = False
         self.precise_move_active = False
-        self.follow_person_active = False
+        self.follow_object_active = False
         self.slam_process = None
         self.nav2_process = None
         self.camera_process = None
         self.explore_process = None
         self.vision_process = None
         self.precise_move_process = None
-        self.follow_person_process = None
+        self.follow_object_process = None
 
         # Per-detector enabled flags (only meaningful when vision_active)
         self.yolo_enabled      = False
@@ -96,7 +96,7 @@ class RobotManager(Node):
         self.gesture_enabled_pub   = self.create_publisher(Bool, '/robot/gesture_enabled',    10)
         self.aruco_enabled_pub     = self.create_publisher(Bool, '/robot/aruco_enabled',      10)
         self.precise_move_active_pub    = self.create_publisher(Bool, '/robot/precise_move_active',    10)
-        self.follow_person_active_pub   = self.create_publisher(Bool, '/robot/follow_person_active',   10)
+        self.follow_object_active_pub   = self.create_publisher(Bool, '/robot/follow_object_active',   10)
         
         # Navigation status publishers
         self.nav_state_pub = self.create_publisher(String, '/robot/nav_status', 10)
@@ -149,9 +149,10 @@ class RobotManager(Node):
 
         # Precise motion — publish JSON to trigger: {"mode":"move","distance":0.5,"speed":0.15}
         self.create_subscription(String, '/robot/precise_move', self.precise_move_callback, 10)
-        self.create_service(Trigger, '/robot/stop_precise_move',     self.stop_precise_move_callback)
-        self.create_service(Trigger, '/robot/start_follow_person',   self.start_follow_person_callback)
-        self.create_service(Trigger, '/robot/stop_follow_person',    self.stop_follow_person_callback)
+        self.create_service(Trigger, '/robot/stop_precise_move',   self.stop_precise_move_callback)
+        self.create_service(Trigger, '/robot/stop_follow_object',  self.stop_follow_object_callback)
+        # publish class name (e.g. "person", "chair") to /robot/follow_object to start following
+        self.create_subscription(String, '/robot/follow_object', self.follow_object_callback, 10)
 
         # Location subscriptions (publish name to topic to trigger)
         self.create_subscription(String, '/robot/save_location',   self.save_location_callback,   10)
@@ -325,16 +326,16 @@ class RobotManager(Node):
         precise_move_msg.data = self.precise_move_active
         self.precise_move_active_pub.publish(precise_move_msg)
 
-        # Auto-detect follow_person process exit
-        if self.follow_person_active and self.follow_person_process is not None:
-            if self.follow_person_process.poll() is not None:
-                self.follow_person_process = None
-                self.follow_person_active = False
+        # Auto-detect follow_object process exit
+        if self.follow_object_active and self.follow_object_process is not None:
+            if self.follow_object_process.poll() is not None:
+                self.follow_object_process = None
+                self.follow_object_active = False
                 self.get_logger().info('Person follower stopped')
 
         follow_msg = Bool()
-        follow_msg.data = self.follow_person_active
-        self.follow_person_active_pub.publish(follow_msg)
+        follow_msg.data = self.follow_object_active
+        self.follow_object_active_pub.publish(follow_msg)
 
         for pub, val in [
             (self.yolo_enabled_pub,     self.yolo_enabled),
@@ -914,52 +915,65 @@ class RobotManager(Node):
             response.message = f'Failed to stop: {str(e)}'
         return response
 
-# ── Person follower callbacks ─────────────────────────────────────────────────
+# ── Object follower callbacks ─────────────────────────────────────────────────
 
-    def start_follow_person_callback(self, request, response):
-        if self.follow_person_active:
-            response.success = False
-            response.message = 'Person follower already active'
-            return response
+    def follow_object_callback(self, msg: String):
+        """Publish a YOLO class name to /robot/follow_object to start following it.
+        e.g. ros2 topic pub --once /robot/follow_object std_msgs/String "data: 'chair'"
+        Stops any active follower first, then starts following the new class.
+        """
+        target = msg.data.strip()
+        if not target:
+            return
         if not self.camera_active:
-            response.success = False
-            response.message = 'Start camera first'
-            return response
+            self.get_logger().error('follow_object: start camera first')
+            return
         if not self.vision_active:
-            response.success = False
-            response.message = 'Start vision pipeline first'
-            return response
+            self.get_logger().error('follow_object: start vision pipeline first')
+            return
         if not self.yolo_enabled:
-            response.success = False
-            response.message = 'Enable YOLO first'
-            return response
+            self.get_logger().error('follow_object: enable YOLO first')
+            return
+        # Stop existing follower if running (including any orphaned instances)
+        subprocess.run(['pkill', '-SIGINT', '-f', 'object_follower.py'], capture_output=True)
+        if self.follow_object_active:
+            if self.follow_object_process:
+                try:
+                    self.follow_object_process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    self.follow_object_process.kill()
+                self.follow_object_process = None
+            self.follow_object_active = False
+        time.sleep(0.5)  # wait for killed process to fully exit before launching new one
         try:
-            self.follow_person_process = subprocess.Popen(
-                ['ros2', 'run', 'my_bot', 'person_follower.py'])
-            self.follow_person_active = True
-            response.success = True
-            response.message = 'Person follower started'
-            self.get_logger().info('Person follower started')
+            self.follow_object_process = subprocess.Popen([
+                'ros2', 'run', 'my_bot', 'object_follower.py',
+                '--ros-args', '-p', f'target_class:={target}',
+            ])
+            self.follow_object_active = True
+            self.get_logger().info(f'Object follower started (class="{target}")')
         except Exception as e:
-            response.success = False
-            response.message = f'Failed to start person follower: {str(e)}'
-            self.get_logger().error(f'Failed to start person follower: {str(e)}')
-        return response
+            self.get_logger().error(f'Failed to start object follower: {e}')
 
-    def stop_follow_person_callback(self, request, response):
-        if not self.follow_person_active:
+    def stop_follow_object_callback(self, request, response):
+        if not self.follow_object_active:
             response.success = False
-            response.message = 'Person follower not active'
+            response.message = 'Object follower not active'
             return response
         try:
-            if self.follow_person_process:
-                self.follow_person_process.send_signal(signal.SIGINT)
-                self.follow_person_process.wait(timeout=3)
-                self.follow_person_process = None
-            self.follow_person_active = False
+            if self.follow_object_process:
+                self.follow_object_process.send_signal(signal.SIGINT)
+                try:
+                    self.follow_object_process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    self.follow_object_process.kill()
+                self.follow_object_process = None
+            # Kill any orphaned instances not tracked by this process
+            subprocess.run(['pkill', '-SIGINT', '-f', 'object_follower.py'], capture_output=True)
+            self.follow_object_active = False
             response.success = True
-            response.message = 'Person follower stopped'
-            self.get_logger().info('Person follower stopped')
+            response.message = 'Object follower stopped'
+            self.get_logger().info('Object follower stopped')
         except Exception as e:
             response.success = False
             response.message = f'Failed to stop: {str(e)}'
@@ -1162,8 +1176,8 @@ def main(args=None):
             node.vision_process.send_signal(signal.SIGINT)
         if node.precise_move_process:
             node.precise_move_process.send_signal(signal.SIGINT)
-        if node.follow_person_process:
-            node.follow_person_process.send_signal(signal.SIGINT)
+        if node.follow_object_process:
+            node.follow_object_process.send_signal(signal.SIGINT)
         node.destroy_node()
         # Only shutdown if context is still valid
         if rclpy.ok():
