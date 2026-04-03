@@ -1084,32 +1084,61 @@ class RobotManager(Node):
 # ── Named location callbacks ──────────────────────────────────────────────────
 
     def save_location_callback(self, msg: String):
-        """Save current map-frame pose under the given name."""
-        name = msg.data.strip()
-        if not name:
-            self.get_logger().warn('save_location: empty name ignored')
+        """Save current map-frame pose or specific coordinates under a name.
+        Input can be just a name (captures current pose) or JSON:
+        {"name": "living_room", "x": 1.5, "y": -2.0, "yaw": 0.0}
+        """
+        data = msg.data.strip()
+        if not data:
+            self.get_logger().warn('save_location: empty input ignored')
             return
 
-        pose = self._get_map_pose()
-        if pose is None:
-            return  # error already logged in _get_map_pose
+        name = ""
+        x, y, yaw = 0.0, 0.0, 0.0
+        use_current_pose = True
 
-        x, y, yaw = pose
+        # Try parsing as JSON first for custom coordinates
+        if data.startswith('{'):
+            try:
+                cfg = json.loads(data)
+                name = cfg.get('name', '').strip()
+                x = float(cfg.get('x', 0.0))
+                y = float(cfg.get('y', 0.0))
+                yaw = float(cfg.get('yaw', 0.0))
+                use_current_pose = False
+            except (json.JSONDecodeError, ValueError, TypeError) as e:
+                self.get_logger().error(f'save_location: invalid JSON/data: {e}')
+                return
+        else:
+            name = data
+
+        if not name:
+            self.get_logger().warn('save_location: name missing or empty')
+            return
+
+        if use_current_pose:
+            pose = self._get_map_pose()
+            if pose is None:
+                return  # error already logged in _get_map_pose
+            x, y, yaw = pose
+
+        # Load existing (necessary if not in mapping session or just ensuring persistence)
+        locations = self._load_locations()
+        locations[name] = {'x': x, 'y': y, 'yaw': yaw}
 
         if self.mapping_active:
-            # Use in-memory session dict → overwrites file (clears old map's locations)
-            self.session_locations[name] = {'x': x, 'y': y, 'yaw': yaw}
+            # Overwrite in-memory session dict (keeps session and file consistent)
+            self.session_locations[name] = locations[name]
             self._write_locations(self.session_locations)
             # Auto-save the map so location and map stay in sync
             self._save_map_internal()
         else:
-            # Navigation-only mode → load existing locations and add/update
-            locations = self._load_locations()
-            locations[name] = {'x': x, 'y': y, 'yaw': yaw}
+            # Navigation-only mode → load/update existing locations
             self._write_locations(locations)
 
         self.get_logger().info(
             f'Location "{name}" saved at ({x:.2f}, {y:.2f}, {math.degrees(yaw):.1f}°)')
+
 
     def goto_location_callback(self, msg: String):
         """Navigate to a previously saved named location."""
