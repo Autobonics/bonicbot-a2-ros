@@ -604,9 +604,12 @@ class RobotManager(Node):
                 self.get_logger().info('Camera deactivated in simulation mode')
             else:
                 # Real hardware: stop v4l2_camera process
+                subprocess.run(['pkill', '-SIGINT', '-f', 'v4l2_camera_node'], capture_output=True)
                 if self.camera_process:
-                    self.camera_process.send_signal(signal.SIGINT)
-                    self.camera_process.wait(timeout=5)
+                    try:
+                        self.camera_process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        self.camera_process.kill()
                     self.camera_process = None
 
                 self.camera_active = False
@@ -737,9 +740,12 @@ class RobotManager(Node):
 
     def _stop_vision_internal(self):
         """Stop vision process and reset all detector flags. Safe to call even if not active."""
+        subprocess.run(['pkill', '-SIGINT', '-f', 'vision_pipeline.py'], capture_output=True)
         if self.vision_process:
-            self.vision_process.send_signal(signal.SIGINT)
-            self.vision_process.wait(timeout=5)
+            try:
+                self.vision_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.vision_process.kill()
             self.vision_process = None
         self.vision_active   = False
         self.yolo_enabled    = False
