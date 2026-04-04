@@ -7,7 +7,7 @@ from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy
 from std_msgs.msg import String, Bool, Float32
 from std_srvs.srv import Trigger
 from geometry_msgs.msg import PoseStamped, Point
-from nav2_msgs.action import NavigateToPose
+from nav2_msgs.action import NavigateToPose, FollowWaypoints
 from nav_msgs.msg import Odometry, OccupancyGrid
 import subprocess
 import signal
@@ -55,6 +55,12 @@ class RobotManager(Node):
         self.distance_to_goal = 0.0
         self._nav_preempting = False  # True when new goal sent before old one finished
 
+        # Patrol state
+        self.patrol_active       = False
+        self.patrol_status       = 'idle'
+        self.patrol_goal_handle  = None
+        self.waypoint_client     = None
+
         # Named locations
         self.locations_file = os.path.expanduser('~/maps/my_map_locations.json')
         self.session_locations = {}   # in-memory; reset on each new mapping session
@@ -98,6 +104,8 @@ class RobotManager(Node):
         self.aruco_enabled_pub     = self.create_publisher(Bool, '/robot/aruco_enabled',      10)
         self.precise_move_active_pub    = self.create_publisher(Bool, '/robot/precise_move_active',    10)
         self.follow_object_active_pub   = self.create_publisher(Bool, '/robot/follow_object_active',   10)
+        self.patrol_active_pub          = self.create_publisher(Bool,   '/robot/patrol_active',           10)
+        self.patrol_status_pub          = self.create_publisher(String, '/robot/patrol_status',           10)
         
         # Navigation status publishers
         self.nav_state_pub = self.create_publisher(String, '/robot/nav_status', 10)
@@ -156,9 +164,12 @@ class RobotManager(Node):
         self.create_subscription(String, '/robot/follow_object', self.follow_object_callback, 10)
 
         # Location subscriptions (publish name to topic to trigger)
-        self.create_subscription(String, '/robot/save_location',   self.save_location_callback,   10)
-        self.create_subscription(String, '/robot/goto_location',   self.goto_location_callback,   10)
-        self.create_subscription(String, '/robot/delete_location', self.delete_location_callback, 10)
+        self.create_subscription(String, '/robot/save_location',      self.save_location_callback,   10)
+        self.create_subscription(String, '/robot/goto_location',      self.goto_location_callback,   10)
+        self.create_subscription(String, '/robot/delete_location',    self.delete_location_callback, 10)
+        # Patrol: publish JSON array of location names e.g. '["kitchen","hallway","bedroom"]'
+        self.create_subscription(String, '/robot/patrol_locations',   self.patrol_locations_callback, 10)
+        self.create_service(Trigger,     '/robot/stop_patrol',        self.stop_patrol_callback)
 
         # Publish list of saved locations (JSON string)
         self.locations_list_pub = self.create_publisher(String, '/robot/locations_list', 10)
@@ -348,6 +359,14 @@ class RobotManager(Node):
         follow_msg = Bool()
         follow_msg.data = self.follow_object_active
         self.follow_object_active_pub.publish(follow_msg)
+
+        patrol_msg = Bool()
+        patrol_msg.data = self.patrol_active
+        self.patrol_active_pub.publish(patrol_msg)
+
+        patrol_status_msg = String()
+        patrol_status_msg.data = self.patrol_status
+        self.patrol_status_pub.publish(patrol_status_msg)
 
         for pub, val in [
             (self.yolo_enabled_pub,     self.yolo_enabled),
@@ -1199,6 +1218,108 @@ class RobotManager(Node):
         self.session_locations.pop(name, None)
         self._write_locations(locations)
         self.get_logger().info(f'Location "{name}" deleted')
+
+# ── Patrol callbacks ──────────────────────────────────────────────────────────
+
+    def patrol_locations_callback(self, msg: String):
+        """Publish a JSON array of location names to patrol them in order.
+        e.g. ros2 topic pub --once /robot/patrol_locations std_msgs/String "data: '[\"kitchen\",\"hallway\"]'"
+        """
+        if not self.navigation_active:
+            self.get_logger().error('patrol: start navigation first')
+            return
+
+        try:
+            names = json.loads(msg.data)
+        except json.JSONDecodeError as e:
+            self.get_logger().error(f'patrol: invalid JSON: {e}')
+            return
+
+        if not isinstance(names, list) or len(names) == 0:
+            self.get_logger().error('patrol: expected a non-empty JSON array of location names')
+            return
+
+        locations = self._load_locations()
+        waypoints = []
+        for name in names:
+            if name not in locations:
+                self.get_logger().error(f'patrol: location "{name}" not found — aborting')
+                return
+            loc = locations[name]
+            pose = PoseStamped()
+            pose.header.frame_id = 'map'
+            pose.header.stamp = self.get_clock().now().to_msg()
+            pose.pose.position.x = loc['x']
+            pose.pose.position.y = loc['y']
+            yaw = loc['yaw']
+            pose.pose.orientation.z = math.sin(yaw / 2.0)
+            pose.pose.orientation.w = math.cos(yaw / 2.0)
+            waypoints.append(pose)
+
+        # Stop any active patrol before starting a new one
+        if self.patrol_active and self.patrol_goal_handle is not None:
+            self.patrol_goal_handle.cancel_goal_async()
+            self.patrol_goal_handle = None
+            self.patrol_active = False
+
+        if self.waypoint_client is None:
+            self.waypoint_client = ActionClient(self, FollowWaypoints, 'follow_waypoints')
+
+        if not self.waypoint_client.wait_for_server(timeout_sec=5.0):
+            self.get_logger().error('patrol: /follow_waypoints action server not available')
+            return
+
+        goal = FollowWaypoints.Goal()
+        goal.poses = waypoints
+
+        future = self.waypoint_client.send_goal_async(goal)
+        future.add_done_callback(self._patrol_goal_response_cb)
+        self.patrol_active = True
+        self.patrol_status = 'patrolling'
+        self.get_logger().info(f'Patrol started: {names}')
+
+    def _patrol_goal_response_cb(self, future):
+        self.patrol_goal_handle = future.result()
+        if not self.patrol_goal_handle.accepted:
+            self.get_logger().error('patrol: goal rejected')
+            self.patrol_active = False
+            self.patrol_status = 'failed'
+            self.patrol_goal_handle = None
+            return
+        result_future = self.patrol_goal_handle.get_result_async()
+        result_future.add_done_callback(self._patrol_result_cb)
+
+    def _patrol_result_cb(self, future):
+        self.patrol_active = False
+        self.patrol_goal_handle = None
+        missed = future.result().result.missed_waypoints
+        if missed:
+            self.patrol_status = 'failed'
+        else:
+            self.patrol_status = 'completed'
+        if missed:
+            self.get_logger().warn(f'Patrol finished — missed {len(missed)} waypoint(s)')
+        else:
+            self.get_logger().info('Patrol completed successfully')
+
+    def stop_patrol_callback(self, request, response):
+        if not self.patrol_active:
+            response.success = False
+            response.message = 'No active patrol'
+            return response
+        try:
+            if self.patrol_goal_handle:
+                self.patrol_goal_handle.cancel_goal_async()
+                self.patrol_goal_handle = None
+            self.patrol_active = False
+            self.patrol_status = 'stopped'
+            response.success = True
+            response.message = 'Patrol stopped'
+            self.get_logger().info('Patrol stopped')
+        except Exception as e:
+            response.success = False
+            response.message = f'Failed to stop patrol: {str(e)}'
+        return response
 
 
 def main(args=None):
