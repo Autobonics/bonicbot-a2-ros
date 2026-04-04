@@ -53,6 +53,7 @@ class RobotManager(Node):
         self.current_goal = None
         self.current_pose = None
         self.distance_to_goal = 0.0
+        self._nav_preempting = False  # True when new goal sent before old one finished
 
         # Named locations
         self.locations_file = os.path.expanduser('~/maps/my_map_locations.json')
@@ -193,7 +194,13 @@ class RobotManager(Node):
         self.current_goal = msg
         self.nav_status = 'navigating'
         self.get_logger().info(f'New goal received: ({msg.pose.position.x:.2f}, {msg.pose.position.y:.2f})')
-        
+
+        # Cancel any active goal before sending the new one
+        if self.nav_goal_handle is not None:
+            self._nav_preempting = True
+            self.nav_goal_handle.cancel_goal_async()
+            self.nav_goal_handle = None
+
         # Send goal to Nav2
         if self.nav_to_pose_client is None:
             self.nav_to_pose_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -236,9 +243,14 @@ class RobotManager(Node):
     
     def nav_result_callback(self, future):
         """Handle navigation result"""
+        # If we intentionally sent a new goal, this result is from the old aborted goal — ignore it
+        if self._nav_preempting:
+            self._nav_preempting = False
+            return
+
         result = future.result().result
         status = future.result().status
-        
+
         if status == 4:  # SUCCEEDED
             self.nav_status = 'goal_reached'
             self.get_logger().info('Goal reached successfully!')
