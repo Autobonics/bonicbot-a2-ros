@@ -376,15 +376,32 @@ class VisionPipeline(Node):
             confidences   = class_scores[np.arange(len(class_scores)), class_ids]
 
             mask = confidences > 0.5
+            # Convert to x1y1wh (top-left) for NMS
+            boxes_nms = np.stack([
+                cx[mask] - w[mask] / 2,
+                cy[mask] - h[mask] / 2,
+                w[mask],
+                h[mask],
+            ], axis=1).tolist()
+            confs_nms = confidences[mask].tolist()
+            # Apply NMS per-class to remove duplicate detections
+            indices = cv2.dnn.NMSBoxes(boxes_nms, confs_nms, score_threshold=0.5, nms_threshold=0.45)
+            indices = indices.flatten() if len(indices) > 0 else []
+
+            masked_cls  = class_ids[mask]
+            masked_conf = confidences[mask]
+            masked_cx   = cx[mask]
+            masked_cy   = cy[mask]
+            masked_w    = w[mask]
+            masked_h    = h[mask]
+
             detections = []
-            for conf, cls_id, x, y, bw, bh in zip(
-                    confidences[mask], class_ids[mask],
-                    cx[mask], cy[mask], w[mask], h[mask]):
+            for i in indices:
                 detections.append({
-                    'class':      _COCO_CLASSES[int(cls_id)],
-                    'confidence': round(float(conf), 3),
-                    # normalised xywh (centre-based, 0-1)
-                    'bbox':       [round(float(v) / sz, 4) for v in (x, y, bw, bh)],
+                    'class':      _COCO_CLASSES[int(masked_cls[i])],
+                    'confidence': round(float(masked_conf[i]), 3),
+                    'bbox':       [round(float(v) / sz, 4) for v in (
+                                    masked_cx[i], masked_cy[i], masked_w[i], masked_h[i])],
                 })
             msg = String()
             msg.data = json.dumps(detections)

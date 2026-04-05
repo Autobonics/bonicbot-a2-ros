@@ -6,8 +6,8 @@ from rclpy.action import ActionClient
 from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy
 from std_msgs.msg import String, Bool, Float32
 from std_srvs.srv import Trigger
-from geometry_msgs.msg import PoseStamped, Point
-from nav2_msgs.action import NavigateToPose
+from geometry_msgs.msg import PoseStamped, Point, Twist
+from nav2_msgs.action import NavigateToPose, FollowWaypoints, DriveOnHeading, Spin
 from nav_msgs.msg import Odometry, OccupancyGrid
 import subprocess
 import signal
@@ -41,6 +41,10 @@ class RobotManager(Node):
         self.precise_move_process = None
         self.follow_object_process = None
 
+        # Precise movement queue
+        self.precise_move_queue = []
+        self.precise_move_lock = threading.Lock()
+
         # Per-detector enabled flags (only meaningful when vision_active)
         self.yolo_enabled      = False
         self.pose_enabled      = False
@@ -53,6 +57,33 @@ class RobotManager(Node):
         self.current_goal = None
         self.current_pose = None
         self.distance_to_goal = 0.0
+        self._nav_preempting = False  # True when new goal sent before old one finished
+
+        # Patrol state
+        self.patrol_active       = False
+        self.patrol_status       = 'idle'
+        self.patrol_goal_handle  = None
+        self.waypoint_client     = None
+        self.waypoint_goal_handle = None
+        self.spin_client         = None
+        self.drive_on_heading_client = None
+        self.nav_goal_handle     = None # Shared for all Nav2 actions
+
+        # Precise movement (Internal Engine)
+        self.precise_move_queue = []
+        self.precise_move_active = False
+        self.precise_move_lock = threading.RLock()
+        self.precise_move_start_pose = None
+        self.precise_move_current_pose = None
+        self.precise_move_cfg = None
+
+        self._prec_odom_sub = self.create_subscription(
+            Odometry, 
+            '/odometry/filtered', 
+            self._prec_odom_callback, 
+            10
+        )
+        self._cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
 
         # Named locations
         self.locations_file = os.path.expanduser('~/maps/my_map_locations.json')
@@ -97,6 +128,8 @@ class RobotManager(Node):
         self.aruco_enabled_pub     = self.create_publisher(Bool, '/robot/aruco_enabled',      10)
         self.precise_move_active_pub    = self.create_publisher(Bool, '/robot/precise_move_active',    10)
         self.follow_object_active_pub   = self.create_publisher(Bool, '/robot/follow_object_active',   10)
+        self.patrol_active_pub          = self.create_publisher(Bool,   '/robot/patrol_active',           10)
+        self.patrol_status_pub          = self.create_publisher(String, '/robot/patrol_status',           10)
         
         # Navigation status publishers
         self.nav_state_pub = self.create_publisher(String, '/robot/nav_status', 10)
@@ -155,9 +188,12 @@ class RobotManager(Node):
         self.create_subscription(String, '/robot/follow_object', self.follow_object_callback, 10)
 
         # Location subscriptions (publish name to topic to trigger)
-        self.create_subscription(String, '/robot/save_location',   self.save_location_callback,   10)
-        self.create_subscription(String, '/robot/goto_location',   self.goto_location_callback,   10)
-        self.create_subscription(String, '/robot/delete_location', self.delete_location_callback, 10)
+        self.create_subscription(String, '/robot/save_location',      self.save_location_callback,   10)
+        self.create_subscription(String, '/robot/goto_location',      self.goto_location_callback,   10)
+        self.create_subscription(String, '/robot/delete_location',    self.delete_location_callback, 10)
+        # Patrol: publish JSON array of location names e.g. '["kitchen","hallway","bedroom"]'
+        self.create_subscription(String, '/robot/patrol_locations',   self.patrol_locations_callback, 10)
+        self.create_service(Trigger,     '/robot/stop_patrol',        self.stop_patrol_callback)
 
         # Publish list of saved locations (JSON string)
         self.locations_list_pub = self.create_publisher(String, '/robot/locations_list', 10)
@@ -193,7 +229,13 @@ class RobotManager(Node):
         self.current_goal = msg
         self.nav_status = 'navigating'
         self.get_logger().info(f'New goal received: ({msg.pose.position.x:.2f}, {msg.pose.position.y:.2f})')
-        
+
+        # Cancel any active goal before sending the new one
+        if self.nav_goal_handle is not None:
+            self._nav_preempting = True
+            self.nav_goal_handle.cancel_goal_async()
+            self.nav_goal_handle = None
+
         # Send goal to Nav2
         if self.nav_to_pose_client is None:
             self.nav_to_pose_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -236,9 +278,14 @@ class RobotManager(Node):
     
     def nav_result_callback(self, future):
         """Handle navigation result"""
+        # If we intentionally sent a new goal, this result is from the old aborted goal — ignore it
+        if self._nav_preempting:
+            self._nav_preempting = False
+            return
+
         result = future.result().result
         status = future.result().status
-        
+
         if status == 4:  # SUCCEEDED
             self.nav_status = 'goal_reached'
             self.get_logger().info('Goal reached successfully!')
@@ -252,6 +299,10 @@ class RobotManager(Node):
         self.current_goal = None
         self.distance_to_goal = 0.0
         self.nav_goal_handle = None
+
+        # IF this was part of a precise move queue, trigger the next one
+        if self.precise_move_active:
+            self._trigger_next_precise_move()
         
     def cancel_navigation_callback(self, request, response):
         """Cancel current navigation goal"""
@@ -336,6 +387,14 @@ class RobotManager(Node):
         follow_msg = Bool()
         follow_msg.data = self.follow_object_active
         self.follow_object_active_pub.publish(follow_msg)
+
+        patrol_msg = Bool()
+        patrol_msg.data = self.patrol_active
+        self.patrol_active_pub.publish(patrol_msg)
+
+        patrol_status_msg = String()
+        patrol_status_msg.data = self.patrol_status
+        self.patrol_status_pub.publish(patrol_status_msg)
 
         for pub, val in [
             (self.yolo_enabled_pub,     self.yolo_enabled),
@@ -604,9 +663,12 @@ class RobotManager(Node):
                 self.get_logger().info('Camera deactivated in simulation mode')
             else:
                 # Real hardware: stop v4l2_camera process
+                subprocess.run(['pkill', '-SIGINT', '-f', 'v4l2_camera_node'], capture_output=True)
                 if self.camera_process:
-                    self.camera_process.send_signal(signal.SIGINT)
-                    self.camera_process.wait(timeout=5)
+                    try:
+                        self.camera_process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        self.camera_process.kill()
                     self.camera_process = None
 
                 self.camera_active = False
@@ -737,9 +799,12 @@ class RobotManager(Node):
 
     def _stop_vision_internal(self):
         """Stop vision process and reset all detector flags. Safe to call even if not active."""
+        subprocess.run(['pkill', '-SIGINT', '-f', 'vision_pipeline.py'], capture_output=True)
         if self.vision_process:
-            self.vision_process.send_signal(signal.SIGINT)
-            self.vision_process.wait(timeout=5)
+            try:
+                self.vision_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.vision_process.kill()
             self.vision_process = None
         self.vision_active   = False
         self.yolo_enabled    = False
@@ -856,63 +921,180 @@ class RobotManager(Node):
 
 # ── Precise motion callbacks ─────────────────────────────────────────────────
 
-    def precise_move_callback(self, msg: String):
-        """Launch precise_motion.py with params from JSON string.
-        Publish to /robot/precise_move: {"mode":"move","distance":0.5,"speed":0.15}
-        or {"mode":"rotate","angle":90.0,"speed":30.0,"use_nav2":false}
-        """
-        if self.precise_move_active:
-            self.get_logger().warn('Precise move already active — ignoring')
+    def _prec_odom_callback(self, msg: Odometry):
+        """Internal Precise Motion logic matched 1:1 with standalone script."""
+        if not self.precise_move_active or not self.precise_move_cfg:
             return
+
+        # NEW: Only skip processing if use_nav2 is enabled AND Nav2 is actually running
+        # This provides a safe fallback to internal engine if Nav2 is off.
+        if self.precise_move_cfg.get('use_nav2', False) and self.navigation_active:
+            return
+
+        # Get current pose
+        p = msg.pose.pose.position
+        q = msg.pose.pose.orientation
+        yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        curr = (p.x, p.y, yaw)
+
+        # Latch start pose
+        if self.precise_move_start_pose is None:
+            self.precise_move_start_pose = curr
+            self.get_logger().info('Internal Precise Move: Start pose latched.')
+            # Standalone script returns here, so we do too for exact parity
+            return
+
+        cfg = self.precise_move_cfg
+        mode = cfg.get('mode', 'move')
+        speed = float(cfg.get('speed', 0.4 if mode == 'move' else 45.0))
+        twist = Twist()
+        done = False
+
+        if mode == 'move':
+            target = float(cfg.get('distance', 0.0))
+            traveled = math.sqrt((curr[0] - self.precise_move_start_pose[0])**2 + 
+                                (curr[1] - self.precise_move_start_pose[1])**2)
+            if traveled >= abs(target):
+                done = True
+            else:
+                twist.linear.x = speed if target >= 0 else -speed
+        else: # rotate
+            target = math.radians(float(cfg.get('angle', 0.0)))
+            speed_rad = math.radians(speed)
+            diff = curr[2] - self.precise_move_start_pose[2]
+            # Normalize angle to (-pi, pi]
+            while diff >  math.pi: diff -= 2.0 * math.pi
+            while diff < -math.pi: diff += 2.0 * math.pi
+            
+            reached = (target >= 0 and diff >= target) or (target < 0 and diff <= target)
+            if reached:
+                done = True
+            else:
+                twist.angular.z = speed_rad if target >= 0 else -speed_rad
+
+        if done:
+            self.get_logger().info(f'Internal Precise {mode} complete.')
+            self._cmd_vel_pub.publish(Twist()) # Full stop
+            self._trigger_next_precise_move()
+        else:
+            self._cmd_vel_pub.publish(twist)
+
+    def precise_move_callback(self, msg: String):
+        """Internal Queueing for precise move."""
         try:
             cfg = json.loads(msg.data)
         except json.JSONDecodeError as e:
             self.get_logger().error(f'precise_move: bad JSON: {e}')
             return
 
-        mode = cfg.get('mode', 'move')
-        speed = cfg.get('speed', 0.0)
-        use_nav2 = cfg.get('use_nav2', True)
+        with self.precise_move_lock:
+            self.precise_move_queue.append(cfg)
+            self.get_logger().info(f'Internal Precise move queued: {cfg}')
+            if not self.precise_move_active:
+                self._trigger_next_precise_move()
 
-        cmd = [
-            'ros2', 'run', 'my_bot', 'precise_motion.py',
-            '--ros-args',
-            '-p', f'mode:={mode}',
-            '-p', f'speed:={float(speed)}',
-            '-p', f'use_nav2:={str(use_nav2).lower()}',
-        ]
+    def _trigger_next_precise_move(self):
+        """Start the next internal command in the queue."""
+        with self.precise_move_lock:
+            if not self.precise_move_queue:
+                self.precise_move_active = False
+                self.precise_move_cfg = None
+                self.precise_move_start_pose = None
+                return
 
-        if mode == 'move':
-            distance = cfg.get('distance', 0.0)
-            cmd += ['-p', f'distance:={float(distance)}']
-        elif mode == 'rotate':
-            angle = cfg.get('angle', 0.0)
-            cmd += ['-p', f'angle:={float(angle)}']
-
-        try:
-            self.precise_move_process = subprocess.Popen(cmd)
+            self.precise_move_cfg = self.precise_move_queue.pop(0)
+            self.precise_move_start_pose = None # Reset for latching
             self.precise_move_active = True
-            self.get_logger().info(f'Precise move started: {cfg}')
-        except Exception as e:
-            self.get_logger().error(f'Failed to start precise_motion: {e}')
+
+        if self.precise_move_cfg.get('use_nav2', False):
+            # Using Nav2 dedicated actions for Safe Mode
+            if not self.navigation_active:
+                self.get_logger().warn('Nav2 not active - falling back to internal high-speed engine.')
+                return # Return allows internal engine callback to pick it up immediately
+
+            mode = self.precise_move_cfg.get('mode', 'move')
+            if mode == 'move':
+                dist = float(self.precise_move_cfg.get('distance', 0.0))
+                speed = float(self.precise_move_cfg.get('speed', 0.15))
+                self._send_drive_goal(dist, speed)
+            else: # rotate
+                angle = math.radians(float(self.precise_move_cfg.get('angle', 0.0)))
+                # speed in spin is radians/sec
+                speed = math.radians(float(self.precise_move_cfg.get('speed', 45.0)))
+                self._send_spin_goal(angle, speed)
+
+    def _send_drive_goal(self, distance, speed):
+        if self.drive_on_heading_client is None:
+            self.drive_on_heading_client = ActionClient(self, DriveOnHeading, 'drive_on_heading')
+        
+        if not self.drive_on_heading_client.wait_for_server(timeout_sec=5.0):
+            self.get_logger().error('DriveOnHeading action server not available')
+            self._trigger_next_precise_move()
+            return
+            
+        goal = DriveOnHeading.Goal()
+        goal.target.x = float(distance)
+        goal.speed = float(abs(speed))
+        goal.time_allowance.sec = 15
+        
+        send_goal_future = self.drive_on_heading_client.send_goal_async(goal)
+        send_goal_future.add_done_callback(self._nav_action_goal_response_cb)
+
+    def _send_spin_goal(self, angle_rad, speed_rad):
+        if self.spin_client is None:
+            self.spin_client = ActionClient(self, Spin, 'spin')
+            
+        if not self.spin_client.wait_for_server(timeout_sec=5.0):
+            self.get_logger().error('Spin action server not available')
+            self._trigger_next_precise_move()
+            return
+            
+        goal = Spin.Goal()
+        goal.target_yaw = float(angle_rad)
+        goal.time_allowance.sec = 10
+        
+        send_goal_future = self.spin_client.send_goal_async(goal)
+        send_goal_future.add_done_callback(self._nav_action_goal_response_cb)
+
+    def _nav_action_goal_response_cb(self, future):
+        """Generalized Nav2 action goal response (Spin, DriveOnHeading)."""
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().error('Precise Nav Goal rejected')
+            self._trigger_next_precise_move()
+            return
+
+        self.nav_goal_handle = goal_handle # Store for cancelling if stop() called
+        result_future = goal_handle.get_result_async()
+        result_future.add_done_callback(self._nav_action_result_cb)
+
+    def _nav_action_result_cb(self, future):
+        """Triggered when DriveOnHeading or Spin is complete."""
+        self.nav_goal_handle = None
+        self.get_logger().info('Precise Nav Action finished.')
+        if self.precise_move_active:
+             self._trigger_next_precise_move()
 
     def stop_precise_move_callback(self, request, response):
-        """Stop an in-progress precise move."""
-        if not self.precise_move_active:
-            response.success = False
-            response.message = 'No precise move active'
-            return response
-        try:
-            if self.precise_move_process:
-                self.precise_move_process.send_signal(signal.SIGINT)
-                self.precise_move_process.wait(timeout=3)
-                self.precise_move_process = None
+        """Stop an in-progress internal or Nav2 precise move."""
+        with self.precise_move_lock:
+            self.precise_move_queue = []
             self.precise_move_active = False
-            response.success = True
-            response.message = 'Precise move stopped'
-        except Exception as e:
-            response.success = False
-            response.message = f'Failed to stop: {str(e)}'
+            self.precise_move_cfg = None
+            self.precise_move_start_pose = None
+
+        # Stop internal engine motors
+        if hasattr(self, '_cmd_vel_pub'):
+            self._cmd_vel_pub.publish(Twist())
+        
+        # Stop Nav2 engine if it was performing a precise move
+        if self.nav_goal_handle is not None:
+             self.get_logger().info('Stopping Nav2 precise move...')
+             self.nav_goal_handle.cancel_goal_async()
+             self.nav_goal_handle = None
+
+        response.success = True
+        response.message = 'All precise movements stopped and queue cleared'
         return response
 
 # ── Object follower callbacks ─────────────────────────────────────────────────
@@ -1181,6 +1363,108 @@ class RobotManager(Node):
         self.session_locations.pop(name, None)
         self._write_locations(locations)
         self.get_logger().info(f'Location "{name}" deleted')
+
+# ── Patrol callbacks ──────────────────────────────────────────────────────────
+
+    def patrol_locations_callback(self, msg: String):
+        """Publish a JSON array of location names to patrol them in order.
+        e.g. ros2 topic pub --once /robot/patrol_locations std_msgs/String "data: '[\"kitchen\",\"hallway\"]'"
+        """
+        if not self.navigation_active:
+            self.get_logger().error('patrol: start navigation first')
+            return
+
+        try:
+            names = json.loads(msg.data)
+        except json.JSONDecodeError as e:
+            self.get_logger().error(f'patrol: invalid JSON: {e}')
+            return
+
+        if not isinstance(names, list) or len(names) == 0:
+            self.get_logger().error('patrol: expected a non-empty JSON array of location names')
+            return
+
+        locations = self._load_locations()
+        waypoints = []
+        for name in names:
+            if name not in locations:
+                self.get_logger().error(f'patrol: location "{name}" not found — aborting')
+                return
+            loc = locations[name]
+            pose = PoseStamped()
+            pose.header.frame_id = 'map'
+            pose.header.stamp = self.get_clock().now().to_msg()
+            pose.pose.position.x = loc['x']
+            pose.pose.position.y = loc['y']
+            yaw = loc['yaw']
+            pose.pose.orientation.z = math.sin(yaw / 2.0)
+            pose.pose.orientation.w = math.cos(yaw / 2.0)
+            waypoints.append(pose)
+
+        # Stop any active patrol before starting a new one
+        if self.patrol_active and self.patrol_goal_handle is not None:
+            self.patrol_goal_handle.cancel_goal_async()
+            self.patrol_goal_handle = None
+            self.patrol_active = False
+
+        if self.waypoint_client is None:
+            self.waypoint_client = ActionClient(self, FollowWaypoints, 'follow_waypoints')
+
+        if not self.waypoint_client.wait_for_server(timeout_sec=5.0):
+            self.get_logger().error('patrol: /follow_waypoints action server not available')
+            return
+
+        goal = FollowWaypoints.Goal()
+        goal.poses = waypoints
+
+        future = self.waypoint_client.send_goal_async(goal)
+        future.add_done_callback(self._patrol_goal_response_cb)
+        self.patrol_active = True
+        self.patrol_status = 'patrolling'
+        self.get_logger().info(f'Patrol started: {names}')
+
+    def _patrol_goal_response_cb(self, future):
+        self.patrol_goal_handle = future.result()
+        if not self.patrol_goal_handle.accepted:
+            self.get_logger().error('patrol: goal rejected')
+            self.patrol_active = False
+            self.patrol_status = 'failed'
+            self.patrol_goal_handle = None
+            return
+        result_future = self.patrol_goal_handle.get_result_async()
+        result_future.add_done_callback(self._patrol_result_cb)
+
+    def _patrol_result_cb(self, future):
+        self.patrol_active = False
+        self.patrol_goal_handle = None
+        missed = future.result().result.missed_waypoints
+        if missed:
+            self.patrol_status = 'failed'
+        else:
+            self.patrol_status = 'completed'
+        if missed:
+            self.get_logger().warn(f'Patrol finished — missed {len(missed)} waypoint(s)')
+        else:
+            self.get_logger().info('Patrol completed successfully')
+
+    def stop_patrol_callback(self, request, response):
+        if not self.patrol_active:
+            response.success = False
+            response.message = 'No active patrol'
+            return response
+        try:
+            if self.patrol_goal_handle:
+                self.patrol_goal_handle.cancel_goal_async()
+                self.patrol_goal_handle = None
+            self.patrol_active = False
+            self.patrol_status = 'stopped'
+            response.success = True
+            response.message = 'Patrol stopped'
+            self.get_logger().info('Patrol stopped')
+        except Exception as e:
+            response.success = False
+            response.message = f'Failed to stop patrol: {str(e)}'
+        return response
 
 
 def main(args=None):
