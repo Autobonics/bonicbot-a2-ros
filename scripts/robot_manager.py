@@ -7,7 +7,7 @@ from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy
 from std_msgs.msg import String, Bool, Float32
 from std_srvs.srv import Trigger
 from geometry_msgs.msg import PoseStamped, Point, Twist
-from nav2_msgs.action import NavigateToPose, FollowWaypoints
+from nav2_msgs.action import NavigateToPose, FollowWaypoints, DriveOnHeading, Spin
 from nav_msgs.msg import Odometry, OccupancyGrid
 import subprocess
 import signal
@@ -65,6 +65,9 @@ class RobotManager(Node):
         self.patrol_goal_handle  = None
         self.waypoint_client     = None
         self.waypoint_goal_handle = None
+        self.spin_client         = None
+        self.drive_on_heading_client = None
+        self.nav_goal_handle     = None # Shared for all Nav2 actions
 
         # Precise movement (Internal Engine)
         self.precise_move_queue = []
@@ -296,6 +299,10 @@ class RobotManager(Node):
         self.current_goal = None
         self.distance_to_goal = 0.0
         self.nav_goal_handle = None
+
+        # IF this was part of a precise move queue, trigger the next one
+        if self.precise_move_active:
+            self._trigger_next_precise_move()
         
     def cancel_navigation_callback(self, request, response):
         """Cancel current navigation goal"""
@@ -919,6 +926,11 @@ class RobotManager(Node):
         if not self.precise_move_active or not self.precise_move_cfg:
             return
 
+        # NEW: Only skip processing if use_nav2 is enabled AND Nav2 is actually running
+        # This provides a safe fallback to internal engine if Nav2 is off.
+        if self.precise_move_cfg.get('use_nav2', False) and self.navigation_active:
+            return
+
         # Get current pose
         p = msg.pose.pose.position
         q = msg.pose.pose.orientation
@@ -994,19 +1006,96 @@ class RobotManager(Node):
             self.precise_move_start_pose = None # Reset for latching
             self.precise_move_active = True
 
+        if self.precise_move_cfg.get('use_nav2', False):
+            # Using Nav2 dedicated actions for Safe Mode
+            if not self.navigation_active:
+                self.get_logger().error('Nav2 not active — skipping.')
+                self._trigger_next_precise_move()
+                return
+
+            mode = self.precise_move_cfg.get('mode', 'move')
+            if mode == 'move':
+                dist = float(self.precise_move_cfg.get('distance', 0.0))
+                speed = float(self.precise_move_cfg.get('speed', 0.15))
+                self._send_drive_goal(dist, speed)
+            else: # rotate
+                angle = math.radians(float(self.precise_move_cfg.get('angle', 0.0)))
+                # speed in spin is radians/sec
+                speed = math.radians(float(self.precise_move_cfg.get('speed', 45.0)))
+                self._send_spin_goal(angle, speed)
+
+    def _send_drive_goal(self, distance, speed):
+        if self.drive_on_heading_client is None:
+            self.drive_on_heading_client = ActionClient(self, DriveOnHeading, 'drive_on_heading')
+        
+        if not self.drive_on_heading_client.wait_for_server(timeout_sec=5.0):
+            self.get_logger().error('DriveOnHeading action server not available')
+            self._trigger_next_precise_move()
+            return
+            
+        goal = DriveOnHeading.Goal()
+        goal.target.x = float(distance)
+        goal.speed = float(abs(speed))
+        goal.time_allowance.sec = 15
+        
+        send_goal_future = self.drive_on_heading_client.send_goal_async(goal)
+        send_goal_future.add_done_callback(self._nav_action_goal_response_cb)
+
+    def _send_spin_goal(self, angle_rad, speed_rad):
+        if self.spin_client is None:
+            self.spin_client = ActionClient(self, Spin, 'spin')
+            
+        if not self.spin_client.wait_for_server(timeout_sec=5.0):
+            self.get_logger().error('Spin action server not available')
+            self._trigger_next_precise_move()
+            return
+            
+        goal = Spin.Goal()
+        goal.target_yaw = float(angle_rad)
+        goal.time_allowance.sec = 10
+        
+        send_goal_future = self.spin_client.send_goal_async(goal)
+        send_goal_future.add_done_callback(self._nav_action_goal_response_cb)
+
+    def _nav_action_goal_response_cb(self, future):
+        """Generalized Nav2 action goal response (Spin, DriveOnHeading)."""
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().error('Precise Nav Goal rejected')
+            self._trigger_next_precise_move()
+            return
+
+        self.nav_goal_handle = goal_handle # Store for cancelling if stop() called
+        result_future = goal_handle.get_result_async()
+        result_future.add_done_callback(self._nav_action_result_cb)
+
+    def _nav_action_result_cb(self, future):
+        """Triggered when DriveOnHeading or Spin is complete."""
+        self.nav_goal_handle = None
+        self.get_logger().info('Precise Nav Action finished.')
+        if self.precise_move_active:
+             self._trigger_next_precise_move()
+
     def stop_precise_move_callback(self, request, response):
-        """Stop an in-progress internal precise move."""
+        """Stop an in-progress internal or Nav2 precise move."""
         with self.precise_move_lock:
             self.precise_move_queue = []
             self.precise_move_active = False
             self.precise_move_cfg = None
             self.precise_move_start_pose = None
 
+        # Stop internal engine motors
         if hasattr(self, '_cmd_vel_pub'):
             self._cmd_vel_pub.publish(Twist())
         
+        # Stop Nav2 engine if it was performing a precise move
+        if self.nav_goal_handle is not None:
+             self.get_logger().info('Stopping Nav2 precise move...')
+             self.nav_goal_handle.cancel_goal_async()
+             self.nav_goal_handle = None
+
         response.success = True
-        response.message = 'Internal Precise move stopped and queue cleared'
+        response.message = 'All precise movements stopped and queue cleared'
         return response
 
 # ── Object follower callbacks ─────────────────────────────────────────────────
