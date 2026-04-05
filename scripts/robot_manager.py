@@ -1009,9 +1009,8 @@ class RobotManager(Node):
         if self.precise_move_cfg.get('use_nav2', False):
             # Using Nav2 dedicated actions for Safe Mode
             if not self.navigation_active:
-                self.get_logger().error('Nav2 not active — skipping.')
-                self._trigger_next_precise_move()
-                return
+                self.get_logger().warn('Nav2 not active - falling back to internal high-speed engine.')
+                return # Return allows internal engine callback to pick it up immediately
 
             mode = self.precise_move_cfg.get('mode', 'move')
             if mode == 'move':
