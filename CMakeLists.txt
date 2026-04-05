@@ -66,7 +66,6 @@ install(
 install(PROGRAMS
   scripts/robot_manager.py
   scripts/vision_pipeline.py
-  scripts/precise_motion.py
   scripts/object_follower.py
   DESTINATION lib/${PROJECT_NAME}
 )

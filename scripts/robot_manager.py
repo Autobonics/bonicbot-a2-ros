@@ -6,7 +6,7 @@ from rclpy.action import ActionClient
 from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy
 from std_msgs.msg import String, Bool, Float32
 from std_srvs.srv import Trigger
-from geometry_msgs.msg import PoseStamped, Point
+from geometry_msgs.msg import PoseStamped, Point, Twist
 from nav2_msgs.action import NavigateToPose, FollowWaypoints
 from nav_msgs.msg import Odometry, OccupancyGrid
 import subprocess
@@ -41,6 +41,10 @@ class RobotManager(Node):
         self.precise_move_process = None
         self.follow_object_process = None
 
+        # Precise movement queue
+        self.precise_move_queue = []
+        self.precise_move_lock = threading.Lock()
+
         # Per-detector enabled flags (only meaningful when vision_active)
         self.yolo_enabled      = False
         self.pose_enabled      = False
@@ -60,6 +64,23 @@ class RobotManager(Node):
         self.patrol_status       = 'idle'
         self.patrol_goal_handle  = None
         self.waypoint_client     = None
+        self.waypoint_goal_handle = None
+
+        # Precise movement (Internal Engine)
+        self.precise_move_queue = []
+        self.precise_move_active = False
+        self.precise_move_lock = threading.RLock()
+        self.precise_move_start_pose = None
+        self.precise_move_current_pose = None
+        self.precise_move_cfg = None
+
+        self._prec_odom_sub = self.create_subscription(
+            Odometry, 
+            '/odometry/filtered', 
+            self._prec_odom_callback, 
+            10
+        )
+        self._cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
 
         # Named locations
         self.locations_file = os.path.expanduser('~/maps/my_map_locations.json')
@@ -893,63 +914,99 @@ class RobotManager(Node):
 
 # ── Precise motion callbacks ─────────────────────────────────────────────────
 
-    def precise_move_callback(self, msg: String):
-        """Launch precise_motion.py with params from JSON string.
-        Publish to /robot/precise_move: {"mode":"move","distance":0.5,"speed":0.15}
-        or {"mode":"rotate","angle":90.0,"speed":30.0,"use_nav2":false}
-        """
-        if self.precise_move_active:
-            self.get_logger().warn('Precise move already active — ignoring')
+    def _prec_odom_callback(self, msg: Odometry):
+        """Internal Precise Motion logic matched 1:1 with standalone script."""
+        if not self.precise_move_active or not self.precise_move_cfg:
             return
+
+        # Get current pose
+        p = msg.pose.pose.position
+        q = msg.pose.pose.orientation
+        yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        curr = (p.x, p.y, yaw)
+
+        # Latch start pose
+        if self.precise_move_start_pose is None:
+            self.precise_move_start_pose = curr
+            self.get_logger().info('Internal Precise Move: Start pose latched.')
+            # Standalone script returns here, so we do too for exact parity
+            return
+
+        cfg = self.precise_move_cfg
+        mode = cfg.get('mode', 'move')
+        speed = float(cfg.get('speed', 0.4 if mode == 'move' else 45.0))
+        twist = Twist()
+        done = False
+
+        if mode == 'move':
+            target = float(cfg.get('distance', 0.0))
+            traveled = math.sqrt((curr[0] - self.precise_move_start_pose[0])**2 + 
+                                (curr[1] - self.precise_move_start_pose[1])**2)
+            if traveled >= abs(target):
+                done = True
+            else:
+                twist.linear.x = speed if target >= 0 else -speed
+        else: # rotate
+            target = math.radians(float(cfg.get('angle', 0.0)))
+            speed_rad = math.radians(speed)
+            diff = curr[2] - self.precise_move_start_pose[2]
+            # Normalize angle to (-pi, pi]
+            while diff >  math.pi: diff -= 2.0 * math.pi
+            while diff < -math.pi: diff += 2.0 * math.pi
+            
+            reached = (target >= 0 and diff >= target) or (target < 0 and diff <= target)
+            if reached:
+                done = True
+            else:
+                twist.angular.z = speed_rad if target >= 0 else -speed_rad
+
+        if done:
+            self.get_logger().info(f'Internal Precise {mode} complete.')
+            self._cmd_vel_pub.publish(Twist()) # Full stop
+            self._trigger_next_precise_move()
+        else:
+            self._cmd_vel_pub.publish(twist)
+
+    def precise_move_callback(self, msg: String):
+        """Internal Queueing for precise move."""
         try:
             cfg = json.loads(msg.data)
         except json.JSONDecodeError as e:
             self.get_logger().error(f'precise_move: bad JSON: {e}')
             return
 
-        mode = cfg.get('mode', 'move')
-        speed = cfg.get('speed', 0.0)
-        use_nav2 = cfg.get('use_nav2', True)
+        with self.precise_move_lock:
+            self.precise_move_queue.append(cfg)
+            self.get_logger().info(f'Internal Precise move queued: {cfg}')
+            if not self.precise_move_active:
+                self._trigger_next_precise_move()
 
-        cmd = [
-            'ros2', 'run', 'my_bot', 'precise_motion.py',
-            '--ros-args',
-            '-p', f'mode:={mode}',
-            '-p', f'speed:={float(speed)}',
-            '-p', f'use_nav2:={str(use_nav2).lower()}',
-        ]
+    def _trigger_next_precise_move(self):
+        """Start the next internal command in the queue."""
+        with self.precise_move_lock:
+            if not self.precise_move_queue:
+                self.precise_move_active = False
+                self.precise_move_cfg = None
+                self.precise_move_start_pose = None
+                return
 
-        if mode == 'move':
-            distance = cfg.get('distance', 0.0)
-            cmd += ['-p', f'distance:={float(distance)}']
-        elif mode == 'rotate':
-            angle = cfg.get('angle', 0.0)
-            cmd += ['-p', f'angle:={float(angle)}']
-
-        try:
-            self.precise_move_process = subprocess.Popen(cmd)
+            self.precise_move_cfg = self.precise_move_queue.pop(0)
+            self.precise_move_start_pose = None # Reset for latching
             self.precise_move_active = True
-            self.get_logger().info(f'Precise move started: {cfg}')
-        except Exception as e:
-            self.get_logger().error(f'Failed to start precise_motion: {e}')
 
     def stop_precise_move_callback(self, request, response):
-        """Stop an in-progress precise move."""
-        if not self.precise_move_active:
-            response.success = False
-            response.message = 'No precise move active'
-            return response
-        try:
-            if self.precise_move_process:
-                self.precise_move_process.send_signal(signal.SIGINT)
-                self.precise_move_process.wait(timeout=3)
-                self.precise_move_process = None
+        """Stop an in-progress internal precise move."""
+        with self.precise_move_lock:
+            self.precise_move_queue = []
             self.precise_move_active = False
-            response.success = True
-            response.message = 'Precise move stopped'
-        except Exception as e:
-            response.success = False
-            response.message = f'Failed to stop: {str(e)}'
+            self.precise_move_cfg = None
+            self.precise_move_start_pose = None
+
+        if hasattr(self, '_cmd_vel_pub'):
+            self._cmd_vel_pub.publish(Twist())
+        
+        response.success = True
+        response.message = 'Internal Precise move stopped and queue cleared'
         return response
 
 # ── Object follower callbacks ─────────────────────────────────────────────────
