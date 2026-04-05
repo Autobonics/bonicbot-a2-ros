@@ -55,7 +55,7 @@
     <xacro:property name="chassis_mass" value="10.0"/>
     <xacro:property name="wheel_radius" value="0.06"/>
     <xacro:property name="wheel_thickness" value="0.055"/>
-    <xacro:property name="wheel_mass" value="0.2"/>
+    <xacro:property name="wheel_mass" value="0.5"/>
     <xacro:property name="wheel_offset_x" value="0.0"/>
     <xacro:property name="wheel_offset_y" value="0.14475"/>
     <xacro:property name="wheel_offset_z" value="0.064"/>
@@ -136,7 +136,7 @@
                 <box size="${chassis_length} ${chassis_width} ${chassis_height}"/>
             </geometry>
         </collision>
-        <xacro:inertial_box mass="5.0" x="${chassis_length}" y="${chassis_width}" z="${chassis_height}">
+        <xacro:inertial_box mass="${chassis_mass}" x="${chassis_length}" y="${chassis_width}" z="${chassis_height}">
             <origin xyz="0 0 0.02" rpy="0 0 0"/>
         </xacro:inertial_box>
     </link>
@@ -151,6 +151,7 @@
         <child link="left_wheel"/>
         <origin xyz="0 ${wheel_offset_y} 0" rpy="-${pi/2} 0 0" />
         <axis xyz="0 0 1"/>
+        <limit effort="100.0" velocity="40.0"/>
         <dynamics damping="0.0" friction="0.0"/>
     </joint>
 
@@ -173,8 +174,8 @@
 
     <gazebo reference="left_wheel">
         <material>Gazebo/Black</material>
-        <mu1 value="2.0"/>
-        <mu2 value="2.0"/>
+        <mu1 value="0.5"/>
+        <mu2 value="0.8"/>
         <fdir1 value="1 0 0"/>
         <kp value="1e7"/>
         <kd value="1.0"/>
@@ -190,6 +191,7 @@
         <child link="right_wheel"/>
         <origin xyz="0 ${-wheel_offset_y} 0" rpy="${pi/2} 0 0" />
         <axis xyz="0 0 -1"/>
+        <limit effort="100.0" velocity="40.0"/>
         <dynamics damping="0.0" friction="0.0"/>
     </joint>
 
@@ -212,8 +214,8 @@
 
     <gazebo reference="right_wheel">
         <material>Gazebo/Black</material>
-        <mu1 value="2.0"/>
-        <mu2 value="2.0"/>
+        <mu1 value="0.5"/>
+        <mu2 value="0.8"/>
         <fdir1 value="1 0 0"/>
         <kp value="1e7"/>
         <kd value="1.0"/>
