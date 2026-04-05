@@ -55,7 +55,7 @@
     <xacro:property name="chassis_mass" value="10.0"/>
     <xacro:property name="wheel_radius" value="0.06"/>
     <xacro:property name="wheel_thickness" value="0.055"/>
-    <xacro:property name="wheel_mass" value="0.05"/>
+    <xacro:property name="wheel_mass" value="0.2"/>
     <xacro:property name="wheel_offset_x" value="0.0"/>
     <xacro:property name="wheel_offset_y" value="0.14475"/>
     <xacro:property name="wheel_offset_z" value="0.064"/>
@@ -173,10 +173,10 @@
 
     <gazebo reference="left_wheel">
         <material>Gazebo/Black</material>
-        <mu1 value="20.0"/>
-        <mu2 value="20.0"/>
+        <mu1 value="2.0"/>
+        <mu2 value="2.0"/>
         <fdir1 value="1 0 0"/>
-        <kp value="1e12"/>
+        <kp value="1e7"/>
         <kd value="1.0"/>
     </gazebo>
 
@@ -212,10 +212,10 @@
 
     <gazebo reference="right_wheel">
         <material>Gazebo/Black</material>
-        <mu1 value="20.0"/>
-        <mu2 value="20.0"/>
+        <mu1 value="2.0"/>
+        <mu2 value="2.0"/>
         <fdir1 value="1 0 0"/>
-        <kp value="1e12"/>
+        <kp value="1e7"/>
         <kd value="1.0"/>
     </gazebo>
 
@@ -248,8 +248,8 @@
 
     <gazebo reference="front_caster_wheel">
         <material>Gazebo/White</material>
-        <mu1 value="0.001"/>
-        <mu2 value="0.001"/>
+        <mu1 value="0.0"/>
+        <mu2 value="0.0"/>
     </gazebo>
 
 
@@ -281,8 +281,8 @@
 
     <gazebo reference="back_caster_wheel">
         <material>Gazebo/White</material>
-        <mu1 value="0.001"/>
-        <mu2 value="0.001"/>
+        <mu1 value="0.0"/>
+        <mu2 value="0.0"/>
     </gazebo>
 
     <!-- ===== IMU Link ===== -->

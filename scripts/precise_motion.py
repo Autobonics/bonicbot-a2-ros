@@ -67,7 +67,7 @@ class PreciseMotion(Node):
 
         if self._mode == 'move':
             self._target = self.get_parameter('distance').value
-            self._speed  = abs(raw_speed) if raw_speed != 0.0 else 0.15
+            self._speed  = abs(raw_speed) if raw_speed != 0.0 else 0.4
             direction = 'forward' if self._target >= 0 else 'backward'
             self.get_logger().info(
                 f'[move] {abs(self._target):.3f} m {direction} @ {self._speed:.2f} m/s'
@@ -77,7 +77,7 @@ class PreciseMotion(Node):
             angle_deg    = self.get_parameter('angle').value
             self._target = math.radians(angle_deg)
             self._speed  = math.radians(abs(raw_speed)) if raw_speed != 0.0 \
-                           else math.radians(30.0)
+                           else math.radians(45.0)
             direction = 'CCW (anti-clockwise)' if angle_deg >= 0 else 'CW (clockwise)'
             self.get_logger().info(
                 f'[rotate] {abs(angle_deg):.1f}° {direction} '
