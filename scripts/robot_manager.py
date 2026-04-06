@@ -572,12 +572,19 @@ class RobotManager(Node):
         
         try:
             # Cancel any active goal first
-            if self.nav_goal_handle:
+            if hasattr(self, 'nav_goal_handle') and self.nav_goal_handle:
+                self.get_logger().info('Cancelling active goal for shutdown...')
                 self.nav_goal_handle.cancel_goal_async()
             
             if self.nav2_process:
+                self.get_logger().info('Stopping Nav2 process...')
                 self.nav2_process.send_signal(signal.SIGINT)
-                self.nav2_process.wait(timeout=10)
+                try:
+                    self.nav2_process.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    self.get_logger().warn('Nav2 did not stop gracefully, forcing termination...')
+                    self.nav2_process.terminate()
+                    self.nav2_process.wait(timeout=5)
                 self.nav2_process = None
             
             self.navigation_active = False
@@ -590,9 +597,12 @@ class RobotManager(Node):
             self.get_logger().info('Nav2 stopped')
             
         except Exception as e:
+            # If we timed out but still cleaned up, don't crash
+            self.nav2_process = None
+            self.navigation_active = False
             response.success = False
-            response.message = f'Failed to stop navigation: {str(e)}'
-            self.get_logger().error(f'Failed to stop Nav2: {str(e)}')
+            response.message = f'Failed to stop navigation cleanly (timed out), system was forced shut.'
+            self.get_logger().error(f'Failed to stop Nav2 cleanly: {str(e)}')
         
         return response
     
