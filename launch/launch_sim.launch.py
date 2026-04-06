@@ -10,12 +10,27 @@ from launch.substitutions import LaunchConfiguration
 
 from launch_ros.actions import Node
 
-
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
 
     package_name='my_bot' 
     
+    # Declare world as a launch argument
+    world_arg = DeclareLaunchArgument(
+        'world',
+        default_value='my_bot_world.sdf',
+        description='World file name (must be in worlds/ directory)'
+    )
+    
+    world_config = LaunchConfiguration('world')
+    world_path = PathJoinSubstitution([
+        FindPackageShare(package_name),
+        'worlds',
+        world_config
+    ])
+
     rsp = IncludeLaunchDescription(
                 PythonLaunchDescriptionSource([os.path.join(
                     get_package_share_directory(package_name),'launch','rsp.launch.py'
@@ -37,12 +52,11 @@ def generate_launch_description():
         )
 
     # Gazebo Sim (Ignition Fortress)
-    world_file = os.path.join(get_package_share_directory(package_name), 'worlds', 'my_bot_world.sdf')
     gazebo = IncludeLaunchDescription(
                 PythonLaunchDescriptionSource([os.path.join(
                     get_package_share_directory('ros_gz_sim'), 'launch', 'gz_sim.launch.py')]),
                     # Using -r (run) and our custom world
-                    launch_arguments={'gz_args': ['-r ', world_file]}.items()
+                    launch_arguments={'gz_args': ['-r ', world_path]}.items()
              )
 
     # Spawn the robot in Gazebo Sim
@@ -134,6 +148,7 @@ def generate_launch_description():
 
    
     return LaunchDescription([
+        world_arg,
         rsp,
         joystick,
         twist_mux,

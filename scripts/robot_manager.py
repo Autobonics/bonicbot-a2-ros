@@ -499,9 +499,10 @@ class RobotManager(Node):
         try:
             from ament_index_python.packages import get_package_share_directory
             
+            params_filename = 'nav2_params_sim.yaml' if self.use_sim_time else 'nav2_params.yaml'
             params_file = os.path.join(
                 get_package_share_directory('my_bot'),
-                'config', 'nav2_params.yaml'
+                'config', params_filename
             )
             
             # If mapping is active, use online SLAM navigation
