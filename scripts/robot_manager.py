@@ -9,6 +9,7 @@ from std_srvs.srv import Trigger
 from geometry_msgs.msg import PoseStamped, Point, Twist
 from nav2_msgs.action import NavigateToPose, FollowWaypoints, DriveOnHeading, Spin
 from nav_msgs.msg import Odometry, OccupancyGrid
+from action_msgs.msg import GoalStatus
 import subprocess
 import signal
 import os
@@ -283,18 +284,24 @@ class RobotManager(Node):
             self._nav_preempting = False
             return
 
-        result = future.result().result
-        status = future.result().status
+        # future.result() is a GetResult.Response object
+        result_response = future.result()
+        status = result_response.status
 
-        if status == 4:  # SUCCEEDED
+        if status == GoalStatus.STATUS_SUCCEEDED:
             self.nav_status = 'goal_reached'
             self.get_logger().info('Goal reached successfully!')
-        elif status == 5:  # CANCELED
+        elif status == GoalStatus.STATUS_CANCELED:
             self.nav_status = 'cancelled'
             self.get_logger().info('Navigation cancelled')
-        else:  # ABORTED or other
-            self.nav_status = 'goal_failed'
-            self.get_logger().error('Navigation failed')
+        else:
+            # In simulation, we sometimes get 'Aborted' even if we are at the goal due to jitter
+            if self.use_sim_time and self.distance_to_goal < 0.15:
+                self.nav_status = 'goal_reached'
+                self.get_logger().info('Goal reached (resolved from aborted state at low distance)')
+            else:
+                self.nav_status = 'goal_failed'
+                self.get_logger().error(f'Navigation finished with status: {status}')
         
         self.current_goal = None
         self.distance_to_goal = 0.0
@@ -340,7 +347,12 @@ class RobotManager(Node):
         elif self.mapping_active:
             state_msg.data = 'mapping'
         elif self.navigation_active:
-            state_msg.data = 'navigating'
+            if self.nav_status == 'goal_reached':
+                state_msg.data = 'goal_reached'
+            elif self.nav_status == 'navigating':
+                state_msg.data = 'navigating'
+            else:
+                state_msg.data = 'navigation_ready'
         else:
             state_msg.data = 'idle'
         self.state_pub.publish(state_msg)
