@@ -107,9 +107,9 @@ bt_navigator_navigate_to_pose_rclcpp_node:
 controller_server:
   ros__parameters:
     use_sim_time: True  # Changed for real robot
-    controller_frequency: 10.0  # Reduced from 20.0 for RPi - KEY CHANGE
+    controller_frequency: 20.0
     min_x_velocity_threshold: 0.001
-    min_y_velocity_threshold: 0.5
+    min_y_velocity_threshold: 0.01
     min_theta_velocity_threshold: 0.001
     failure_tolerance: 0.3
     progress_checker_plugin: "progress_checker"
@@ -131,23 +131,22 @@ controller_server:
       debug_trajectory_details: True
       min_vel_x: 0.0
       min_vel_y: 0.0
-      max_vel_x: 0.5
+      max_vel_x: 0.8
       max_vel_y: 0.0
-      max_vel_theta: 1.0
+      max_vel_theta: 1.5
       min_speed_xy: 0.0
-      max_speed_xy: 0.5
+      max_speed_xy: 0.8
       min_speed_theta: 0.0
-
-      acc_lim_x: 2.5
+      acc_lim_x: 3.5
       acc_lim_y: 0.0
-      acc_lim_theta: 3.2
-      decel_lim_x: -2.5
+      acc_lim_theta: 4.5
+      decel_lim_x: -3.5
       decel_lim_y: 0.0
-      decel_lim_theta: -3.2
-      vx_samples: 15  # Reduced from 20 for RPi
+      decel_lim_theta: -4.5
+      vx_samples: 25
       vy_samples: 5
-      vtheta_samples: 15  # Reduced from 20 for RPi
-      sim_time: 1.7
+      vtheta_samples: 25
+      sim_time: 2.0
       linear_granularity: 0.05
       angular_granularity: 0.025
       transform_tolerance: 0.2
@@ -260,7 +259,7 @@ map_saver:
 
 planner_server:
   ros__parameters:
-    expected_planner_frequency: 1.0  # Reduced from 20.0 for RPi - KEY CHANGE
+    expected_planner_frequency: 5.0
     use_sim_time: True  # Changed for real robot
     planner_plugins: ["GridBased"]
     GridBased:
@@ -322,13 +321,13 @@ waypoint_follower:
 velocity_smoother:
   ros__parameters:
     use_sim_time: True  # Changed for real robot
-    smoothing_frequency: 10.0  # Reduced from 20.0 for RPi
+    smoothing_frequency: 20.0
     scale_velocities: False
     feedback: "OPEN_LOOP"
-    max_velocity: [0.50, 0.0, 1.0]
-    min_velocity: [-0.50, 0.0, -1.0]
-    max_accel: [2.5, 0.0, 3.2]
-    max_decel: [-2.5, 0.0, -3.2]
+    max_velocity: [0.80, 0.0, 1.5]
+    min_velocity: [-0.80, 0.0, -1.5]
+    max_accel: [3.5, 0.0, 4.5]
+    max_decel: [-3.5, 0.0, -4.5]
     odom_topic: "odom"
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
