@@ -1,0 +1,403 @@
+<sdf version='1.9'>
+  <world name='my_bot_world'>
+    <physics name='1ms' type='ignored'>
+      <max_step_size>0.005</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>200</real_time_update_rate>
+    </physics>
+    <plugin name='gz::sim::systems::Physics' filename='gz-sim-physics-system'/>
+    <plugin name='gz::sim::systems::UserCommands' filename='gz-sim-user-commands-system'/>
+    <plugin name='gz::sim::systems::SceneBroadcaster' filename='gz-sim-scene-broadcaster-system'/>
+    <plugin name='gz::sim::systems::Sensors' filename='gz-sim-sensors-system'>
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin name='gz::sim::systems::Imu' filename='gz-sim-imu-system'/>
+    <gravity>0 0 -9.8</gravity>
+    <magnetic_field>6e-06 2.3e-05 -4.2e-05</magnetic_field>
+    <atmosphere type='adiabatic'/>
+    <scene>
+      <ambient>0.4 0.4 0.4 1</ambient>
+      <background>0.7 0.7 0.7 1</background>
+      <shadows>true</shadows>
+    </scene>
+    <model name='ground_plane'>
+      <static>true</static>
+      <link name='link'>
+        <collision name='collision'>
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <surface>
+            <friction>
+              <ode/>
+            </friction>
+            <bounce/>
+            <contact/>
+          </surface>
+        </collision>
+        <visual name='visual'>
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+          </material>
+        </visual>
+        <pose>0 0 0 0 -0 0</pose>
+        <inertial>
+          <pose>0 0 0 0 -0 0</pose>
+          <mass>1</mass>
+          <inertia>
+            <ixx>1</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>1</iyy>
+            <iyz>0</iyz>
+            <izz>1</izz>
+          </inertia>
+        </inertial>
+        <enable_wind>false</enable_wind>
+      </link>
+      <pose>0 0 0 0 -0 0</pose>
+      <self_collide>false</self_collide>
+    </model>
+    <include>
+      <uri>file:///home/azhar/.ignition/fuel/fuel.gazebosim.org/openrobotics/models/casual female/4</uri>
+      <name>casual_female</name>
+      <pose>1.85548 2.11429 -0.005267 0 -0 0</pose>
+    </include>
+    <model name='box_0'>
+      <pose>3.60656 -3.15944 0.499999 0 -0 0</pose>
+      <link name='box_link'>
+        <inertial>
+          <inertia>
+            <ixx>0.16666</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>0.16666</iyy>
+            <iyz>0</iyz>
+            <izz>0.16666</izz>
+          </inertia>
+          <mass>1</mass>
+          <pose>0 0 0 0 -0 0</pose>
+        </inertial>
+        <collision name='box_collision'>
+          <geometry>
+            <box>
+              <size>1 1 1</size>
+            </box>
+          </geometry>
+          <surface>
+            <friction>
+              <ode/>
+            </friction>
+            <bounce/>
+            <contact/>
+          </surface>
+        </collision>
+        <visual name='box_visual'>
+          <geometry>
+            <box>
+              <size>1 1 1</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.3 0.3 0.3 1</ambient>
+            <diffuse>0.7 0.7 0.7 1</diffuse>
+            <specular>1 1 1 1</specular>
+          </material>
+        </visual>
+        <pose>0 0 0 0 -0 0</pose>
+        <enable_wind>false</enable_wind>
+      </link>
+      <static>false</static>
+      <self_collide>false</self_collide>
+    </model>
+    <include>
+      <uri>file:///home/azhar/.ignition/fuel/fuel.gazebosim.org/openrobotics/models/office chair/1</uri>
+      <name>OfficeChair</name>
+      <pose>2.60737 -3.07696 0 0 -0 0</pose>
+    </include>
+
+    <include>
+      <uri>file:///home/azhar/.ignition/fuel/fuel.gazebosim.org/openrobotics/models/cutout wall/2</uri>
+      <name>cutout_wall</name>
+      <pose>0.147413 -4.3869 0 0 -0 0</pose>
+    </include>
+    <include>
+      <uri>file:///home/azhar/.ignition/fuel/fuel.gazebosim.org/openrobotics/models/cutout wall/2</uri>
+      <name>cutout_wall_0</name>
+      <pose>5.03701 0.708114 0 0 -0 1.57312</pose>
+    </include>
+    <include>
+      <uri>file:///home/azhar/.ignition/fuel/fuel.gazebosim.org/openrobotics/models/minisofa/3</uri>
+      <name>MiniSofa</name>
+      <pose>4.10845 4.47918 -0.000924 -0 -0 0</pose>
+    </include>
+    <include>
+      <uri>file:///home/azhar/.ignition/fuel/fuel.gazebosim.org/openrobotics/models/sofa/3</uri>
+      <name>Sofa</name>
+      <pose>1.47364 3.79082 0.00012 0 0 0</pose>
+    </include>
+    <include>
+      <uri>file:///home/azhar/.ignition/fuel/fuel.gazebosim.org/openrobotics/models/minisofa/3</uri>
+      <name>MiniSofa_0</name>
+      <pose>4.12362 3.38052 -0.000916 -0 -0 0</pose>
+    </include>
+    <model name='box'>
+      <pose>-3.5973 -3.21503 0.5 0 0 0</pose>
+      <link name='box_link'>
+        <inertial>
+          <inertia>
+            <ixx>0.16666</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>0.16666</iyy>
+            <iyz>0</iyz>
+            <izz>0.16666</izz>
+          </inertia>
+          <mass>1</mass>
+          <pose>0 0 0 0 -0 0</pose>
+        </inertial>
+        <collision name='box_collision'>
+          <geometry>
+            <box>
+              <size>1 1 1</size>
+            </box>
+          </geometry>
+          <surface>
+            <friction>
+              <ode/>
+            </friction>
+            <bounce/>
+            <contact/>
+          </surface>
+        </collision>
+        <visual name='box_visual'>
+          <geometry>
+            <box>
+              <size>1 1 1</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.3 0.3 0.3 1</ambient>
+            <diffuse>0.7 0.7 0.7 1</diffuse>
+            <specular>1 1 1 1</specular>
+          </material>
+        </visual>
+        <pose>0 0 0 0 -0 0</pose>
+        <enable_wind>false</enable_wind>
+      </link>
+      <static>false</static>
+      <self_collide>false</self_collide>
+    </model>
+    <model name='box_1'>
+      <pose>-3.60277 -2.21503 0.5 -0 -0 0</pose>
+      <link name='box_link'>
+        <inertial>
+          <inertia>
+            <ixx>0.16666</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>0.16666</iyy>
+            <iyz>0</iyz>
+            <izz>0.16666</izz>
+          </inertia>
+          <mass>1</mass>
+          <pose>0 0 0 0 -0 0</pose>
+        </inertial>
+        <collision name='box_collision'>
+          <geometry>
+            <box>
+              <size>1 1 1</size>
+            </box>
+          </geometry>
+          <surface>
+            <friction>
+              <ode/>
+            </friction>
+            <bounce/>
+            <contact/>
+          </surface>
+        </collision>
+        <visual name='box_visual'>
+          <geometry>
+            <box>
+              <size>1 1 1</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.3 0.3 0.3 1</ambient>
+            <diffuse>0.7 0.7 0.7 1</diffuse>
+            <specular>1 1 1 1</specular>
+          </material>
+        </visual>
+        <pose>0 0 0 0 -0 0</pose>
+        <enable_wind>false</enable_wind>
+      </link>
+      <static>false</static>
+      <self_collide>false</self_collide>
+    </model>
+    <model name='box_2'>
+      <pose>-3.60427 -1.20071 0.5 0 -0 0</pose>
+      <link name='box_link'>
+        <inertial>
+          <inertia>
+            <ixx>0.16666</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>0.16666</iyy>
+            <iyz>0</iyz>
+            <izz>0.16666</izz>
+          </inertia>
+          <mass>1</mass>
+          <pose>0 0 0 0 -0 0</pose>
+        </inertial>
+        <collision name='box_collision'>
+          <geometry>
+            <box>
+              <size>1 1 1</size>
+            </box>
+          </geometry>
+          <surface>
+            <friction>
+              <ode/>
+            </friction>
+            <bounce/>
+            <contact/>
+          </surface>
+        </collision>
+        <visual name='box_visual'>
+          <geometry>
+            <box>
+              <size>1 1 1</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.3 0.3 0.3 1</ambient>
+            <diffuse>0.7 0.7 0.7 1</diffuse>
+            <specular>1 1 1 1</specular>
+          </material>
+        </visual>
+        <pose>0 0 0 0 -0 0</pose>
+        <enable_wind>false</enable_wind>
+      </link>
+      <static>false</static>
+      <self_collide>false</self_collide>
+    </model>
+    <model name='box_3'>
+      <pose>-3.60459 -0.194593 0.5 0 -0 0</pose>
+      <link name='box_link'>
+        <inertial>
+          <inertia>
+            <ixx>0.16666</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>0.16666</iyy>
+            <iyz>0</iyz>
+            <izz>0.16666</izz>
+          </inertia>
+          <mass>1</mass>
+          <pose>0 0 0 0 -0 0</pose>
+        </inertial>
+        <collision name='box_collision'>
+          <geometry>
+            <box>
+              <size>1 1 1</size>
+            </box>
+          </geometry>
+          <surface>
+            <friction>
+              <ode/>
+            </friction>
+            <bounce/>
+            <contact/>
+          </surface>
+        </collision>
+        <visual name='box_visual'>
+          <geometry>
+            <box>
+              <size>1 1 1</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.3 0.3 0.3 1</ambient>
+            <diffuse>0.7 0.7 0.7 1</diffuse>
+            <specular>1 1 1 1</specular>
+          </material>
+        </visual>
+        <pose>0 0 0 0 -0 0</pose>
+        <enable_wind>false</enable_wind>
+      </link>
+      <static>false</static>
+      <self_collide>false</self_collide>
+    </model>
+    <include>
+      <uri>file:///home/azhar/.ignition/fuel/fuel.gazebosim.org/openrobotics/models/dining table/1</uri>
+      <name>DiningTable</name>
+      <pose>-7.15405 0.652386 0 0 -0 0</pose>
+    </include>
+    <include>
+      <uri>file:///home/azhar/.ignition/fuel/fuel.gazebosim.org/openrobotics/models/bedsidetablecart/3</uri>
+      <name>BedsideTableCart</name>
+      <pose>-0.64543 -1.53993 -726.509 0 -0 0</pose>
+    </include>
+    <include>
+      <uri>file:///home/azhar/.ignition/fuel/fuel.gazebosim.org/openrobotics/models/coffeetable/2</uri>
+      <name>CoffeeTable</name>
+      <pose>2.84229 1.09447 -0.000122 0 0 -0</pose>
+    </include>
+    <include>
+      <uri>file:///home/azhar/.ignition/fuel/fuel.gazebosim.org/openrobotics/models/table/4</uri>
+      <name>Table</name>
+      <pose>2.59182 -1.72988 0 0 -0 0</pose>
+    </include>
+    <include>
+      <uri>file:///home/azhar/.ignition/fuel/fuel.gazebosim.org/openrobotics/models/cutout wall/2</uri>
+      <name>cutout_wall_1</name>
+      <pose>0.1366 5.72351 0 0 -0 0</pose>
+    </include>
+    <include>
+      <uri>file:///home/azhar/.ignition/fuel/fuel.gazebosim.org/openrobotics/models/cutout wall/2</uri>
+      <name>cutout_wall_2</name>
+      <pose>-4.17364 5.73227 0 0 -0 0</pose>
+    </include>
+    <include>
+      <uri>file:///home/azhar/.ignition/fuel/fuel.gazebosim.org/openrobotics/models/cutout wall/2</uri>
+      <name>cutout_wall_0_1</name>
+      <pose>-4.89275 -1.025 0 0 -0 1.57312</pose>
+    </include>
+    <include>
+      <uri>file:///home/azhar/.ignition/fuel/fuel.gazebosim.org/openrobotics/models/cutout wall/2</uri>
+      <name>cutout_wall_0_2</name>
+      <pose>-9.06998 0.761626 0 0 -0 1.57312</pose>
+    </include>
+    <light name='sun' type='directional'>
+      <pose>0 0 10 0 -0 0</pose>
+      <cast_shadows>true</cast_shadows>
+      <intensity>1</intensity>
+      <direction>-0.5 0.1 -0.9</direction>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <linear>0.01</linear>
+        <constant>0.90000000000000002</constant>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <spot>
+        <inner_angle>0</inner_angle>
+        <outer_angle>0</outer_angle>
+        <falloff>0</falloff>
+      </spot>
+    </light>
+  </world>
+</sdf>

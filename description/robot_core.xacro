@@ -174,8 +174,8 @@
 
     <gazebo reference="left_wheel">
         <material>Gazebo/Black</material>
-        <mu1 value="0.5"/>
-        <mu2 value="0.8"/>
+        <mu1 value="10.0"/>
+        <mu2 value="10.0"/>
         <fdir1 value="1 0 0"/>
         <kp value="1e7"/>
         <kd value="1.0"/>
@@ -214,8 +214,8 @@
 
     <gazebo reference="right_wheel">
         <material>Gazebo/Black</material>
-        <mu1 value="0.5"/>
-        <mu2 value="0.8"/>
+        <mu1 value="10.0"/>
+        <mu2 value="10.0"/>
         <fdir1 value="1 0 0"/>
         <kp value="1e7"/>
         <kd value="1.0"/>

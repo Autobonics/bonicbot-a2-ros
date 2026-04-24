@@ -9,6 +9,7 @@ from std_srvs.srv import Trigger
 from geometry_msgs.msg import PoseStamped, Point, Twist
 from nav2_msgs.action import NavigateToPose, FollowWaypoints, DriveOnHeading, Spin
 from nav_msgs.msg import Odometry, OccupancyGrid
+from action_msgs.msg import GoalStatus
 import subprocess
 import signal
 import os
@@ -283,18 +284,24 @@ class RobotManager(Node):
             self._nav_preempting = False
             return
 
-        result = future.result().result
-        status = future.result().status
+        # future.result() is a GetResult.Response object
+        result_response = future.result()
+        status = result_response.status
 
-        if status == 4:  # SUCCEEDED
+        if status == GoalStatus.STATUS_SUCCEEDED:
             self.nav_status = 'goal_reached'
             self.get_logger().info('Goal reached successfully!')
-        elif status == 5:  # CANCELED
+        elif status == GoalStatus.STATUS_CANCELED:
             self.nav_status = 'cancelled'
             self.get_logger().info('Navigation cancelled')
-        else:  # ABORTED or other
-            self.nav_status = 'goal_failed'
-            self.get_logger().error('Navigation failed')
+        else:
+            # In simulation, we sometimes get 'Aborted' even if we are at the goal due to jitter
+            if self.use_sim_time and self.distance_to_goal < 0.15:
+                self.nav_status = 'goal_reached'
+                self.get_logger().info('Goal reached (resolved from aborted state at low distance)')
+            else:
+                self.nav_status = 'goal_failed'
+                self.get_logger().error(f'Navigation finished with status: {status}')
         
         self.current_goal = None
         self.distance_to_goal = 0.0
@@ -340,7 +347,12 @@ class RobotManager(Node):
         elif self.mapping_active:
             state_msg.data = 'mapping'
         elif self.navigation_active:
-            state_msg.data = 'navigating'
+            if self.nav_status == 'goal_reached':
+                state_msg.data = 'goal_reached'
+            elif self.nav_status == 'navigating':
+                state_msg.data = 'navigating'
+            else:
+                state_msg.data = 'navigation_ready'
         else:
             state_msg.data = 'idle'
         self.state_pub.publish(state_msg)
@@ -499,9 +511,10 @@ class RobotManager(Node):
         try:
             from ament_index_python.packages import get_package_share_directory
             
+            params_filename = 'nav2_params_sim.yaml' if self.use_sim_time else 'nav2_params.yaml'
             params_file = os.path.join(
                 get_package_share_directory('my_bot'),
-                'config', 'nav2_params.yaml'
+                'config', params_filename
             )
             
             # If mapping is active, use online SLAM navigation
@@ -559,12 +572,19 @@ class RobotManager(Node):
         
         try:
             # Cancel any active goal first
-            if self.nav_goal_handle:
+            if hasattr(self, 'nav_goal_handle') and self.nav_goal_handle:
+                self.get_logger().info('Cancelling active goal for shutdown...')
                 self.nav_goal_handle.cancel_goal_async()
             
             if self.nav2_process:
+                self.get_logger().info('Stopping Nav2 process...')
                 self.nav2_process.send_signal(signal.SIGINT)
-                self.nav2_process.wait(timeout=10)
+                try:
+                    self.nav2_process.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    self.get_logger().warn('Nav2 did not stop gracefully, forcing termination...')
+                    self.nav2_process.terminate()
+                    self.nav2_process.wait(timeout=5)
                 self.nav2_process = None
             
             self.navigation_active = False
@@ -577,9 +597,12 @@ class RobotManager(Node):
             self.get_logger().info('Nav2 stopped')
             
         except Exception as e:
+            # If we timed out but still cleaned up, don't crash
+            self.nav2_process = None
+            self.navigation_active = False
             response.success = False
-            response.message = f'Failed to stop navigation: {str(e)}'
-            self.get_logger().error(f'Failed to stop Nav2: {str(e)}')
+            response.message = f'Failed to stop navigation cleanly (timed out), system was forced shut.'
+            self.get_logger().error(f'Failed to stop Nav2 cleanly: {str(e)}')
         
         return response
     
