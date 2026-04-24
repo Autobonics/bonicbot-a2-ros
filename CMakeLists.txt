@@ -67,6 +67,7 @@ install(PROGRAMS
   scripts/robot_manager.py
   scripts/vision_pipeline.py
   scripts/object_follower.py
+  scripts/robot_agent.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
