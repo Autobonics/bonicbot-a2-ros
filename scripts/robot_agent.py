@@ -14,10 +14,12 @@ import threading
 import time
 
 import rclpy
+import rclpy.executors
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from std_msgs.msg import Bool, Empty, Float64MultiArray, String
 from geometry_msgs.msg import PoseStamped
+from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Image
 from std_srvs.srv import Trigger
 
@@ -35,18 +37,24 @@ SYSTEM_PROMPT = (
     "You can see through the robot's front-facing camera. An image update is provided in most turns.\n"
     "Call one tool per turn. After each result decide the next action.\n\n"
     "Physical limits:\n"
-    "- Differential drive: forward/back and rotation only.\n"
-    "- Two arms (left/right): 2-DOF each, vertical plane only (forward/back + up/down).\n"
+    "- Differential drive: forward/back and rotation only. You CAN combine these to trace shapes, letters, or complex paths (e.g., drawing an 'A' on the floor).\n"
+    "- Two arms: Use `set_arm(side, distance_m, height_m)`. Height 0.0 is shoulder level. Max height ~0.25m.\n"
+    "- To 'point' authoritatively at a person, use a height between 0.15m and 0.20m.\n"
     "- Outside arm reach → reposition robot body first.\n"
     "- Gripper: open/close only.\n"
     "- Head: yaw (left/right) only.\n\n"
-    "Navigation:\n"
+    "Navigation:\n" 
     "- No map loaded → no Nav2, no named locations. Can still move/rotate/use arms/camera.\n"
     "- Object < 50 cm → use precise motion, not Nav2.\n"
     "- Object > 50 cm and map loaded → use Nav2.\n\n"
     "Always check robot_state before acting. Never send arm to unreachable position.\n"
     "Visual Targeting Rule: To center an object on the LEFT of your camera view, you must rotate LEFT (Positive angle). "
-    "To center an object on the RIGHT, you must rotate RIGHT (Negative angle). DO NOT MIRROR THIS.\n"
+    "To center an object on the RIGHT, rotate RIGHT (Negative angle). DO NOT MIRROR THIS.\n"
+    "Efficiency Rule: Do not use tiny increments. Estimate the required angle.\n"
+    "Anti-Oscillation Rule: For visual centering (rotating to center an object), be conservative. Use smaller steps (5-10 degrees) or use only 50% of the estimated angle to avoid overshooting.\n"
+    "SAFETY: `move_forward` and `rotate` are BLIND moves (no obstacle avoidance). Only use for clear paths.\n"
+    "Reachability: If an object is > 0.5m away, you CANNOT reach it with arms. You MUST move the robot body closer first.\n"
+    "Verification: If a tool returns 'command_started': False, the robot DID NOT MOVE. Do not assume the pose has changed; you must retry.\n"
     "Call goal_complete only when fully achieved. Call goal_failed only when impossible."
 )
 
@@ -289,6 +297,14 @@ _TOOLS = [
                         "reason": {"type": "string",
                                    "description": "Why the goal cannot be completed."}},
                     "required": ["reason"]}},
+
+    {"name": "wait",
+     "description": "Wait for specified seconds. Use this if a previous movement is 'still_moving'.",
+     "parameters": {"type": "object",
+                    "properties": {
+                        "seconds": {"type": "number",
+                                   "description": "Seconds to wait."}},
+                    "required": ["seconds"]}},
 ]
 
 
@@ -336,6 +352,8 @@ class RobotAgentNode(Node):
         # ── Load config ───────────────────────────────────────────────────────
         self.declare_parameter('config_file', '')
         self._load_config(self.get_parameter('config_file').value)
+        self.use_sim_time = self.get_parameter('use_sim_time').get_parameter_value().bool_value
+
 
         # ── Gemini ────────────────────────────────────────────────────────────
         api_key = (self.cfg.get('agent', {}).get('gemini_api_key', '')
@@ -444,15 +462,17 @@ class RobotAgentNode(Node):
         self.create_subscription(Image,   '/camera/image_raw',         self._cb_image,          10)
         # Vision pipeline publishes YOLO results as JSON String on /vision/yolo_detections
         self.create_subscription(String,  '/vision/yolo_detections',   self._cb_detections,     10)
+        self.create_subscription(Odometry, '/odometry/filtered',        self._cb_odom,           10)
 
         # ── Service clients ───────────────────────────────────────────────────
         self._svc_cancel_nav   = self.create_client(Trigger, '/robot/cancel_navigation')
         self._svc_stop_follow  = self.create_client(Trigger, '/robot/stop_follow_object')
         self._svc_stop_precise = self.create_client(Trigger, '/robot/stop_precise_move')
-        self._svc_enable_yolo  = self.create_client(Trigger, '/robot/enable_yolo')
-        self._svc_enable_face  = self.create_client(Trigger, '/robot/enable_face')
-        self._svc_enable_pose  = self.create_client(Trigger, '/robot/enable_pose')
-        self._svc_enable_aruco = self.create_client(Trigger, '/robot/enable_aruco')
+        self._svc_enable_yolo    = self.create_client(Trigger, '/robot/enable_yolo')
+        self._svc_enable_face    = self.create_client(Trigger, '/robot/enable_face')
+        self._svc_enable_pose    = self.create_client(Trigger, '/robot/enable_pose')
+        self._svc_enable_aruco   = self.create_client(Trigger, '/robot/enable_aruco')
+        self._svc_enable_gesture = self.create_client(Trigger, '/robot/enable_gesture')
         self._svc_start_nav     = self.create_client(Trigger, '/robot/start_navigation')
         self._svc_stop_nav      = self.create_client(Trigger, '/robot/stop_navigation')
         self._svc_start_mapping = self.create_client(Trigger, '/robot/start_mapping')
@@ -539,12 +559,23 @@ class RobotAgentNode(Node):
     def _cb_detections(self, msg: String):
         try:
             data = json.loads(msg.data)
-            # Normalise to list of dicts
             if isinstance(data, list):
                 with self._state_lock:
                     self.latest_detections = data
         except Exception:
             pass
+
+    def _cb_odom(self, msg: Odometry):
+        p = msg.pose.pose.position
+        q = msg.pose.pose.orientation
+        yaw_rad = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                             1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        with self._state_lock:
+            self.current_pose = {
+                'x':   round(p.x, 3),
+                'y':   round(p.y, 3),
+                'yaw': round(math.degrees(yaw_rad), 2),
+            }
 
     # ─────────────────────────────────────────────────────────────────────────
     # Goal / Cancel entry points
@@ -607,7 +638,13 @@ class RobotAgentNode(Node):
                 continue
 
             self._publish_status(goal, step, tool_name, str(tool_args)[:120])
-            hist_len = len(chat._history) if hasattr(chat, '_history') else 0
+            hist_len = 0
+            try:
+                hist_len = len(chat.get_history())
+            except:
+                if hasattr(chat, '_comprehensive_history'):
+                    hist_len = len(chat._comprehensive_history)
+                
             self.get_logger().info(f'Step {step} (History: {hist_len}): {tool_name}({json.dumps(tool_args)[:80]})')
 
             # ── Terminal tools ────────────────────────────────────────────────
@@ -664,6 +701,7 @@ class RobotAgentNode(Node):
                                       else self.saved_locations),
                 'latest_detections': self.latest_detections[:5],
                 'current_pose':      self.current_pose,
+                'current_yaw_deg':   round(self.current_pose.get('yaw', 0.0), 1) if self.current_pose else 0.0,
             }
 
     def _llm_text_turn(self, chat, text: str):
@@ -678,22 +716,8 @@ class RobotAgentNode(Node):
                 if img_part:
                     contents.append(img_part)
 
-            last_chunk = None
-            for chunk in chat.send_message_stream(contents):
-                if self._cancel_flag.is_set():
-                    return None, {}
-                try:
-                    parts = chunk.candidates[0].content.parts if chunk.candidates else []
-                    for part in parts:
-                        fc = getattr(part, 'function_call', None)
-                        if fc:
-                            self.get_logger().info(f'LLM Calling Tool: {fc.name}')
-                        elif hasattr(part, 'text') and part.text:
-                            self.get_logger().info(f'LLM Text: {part.text}')
-                except Exception:
-                    pass
-                last_chunk = chunk
-            return self._extract_tool_call(last_chunk)
+            response = chat.send_message(message=contents)
+            return self._extract_tool_call(response)
         except Exception as exc:
             self.get_logger().error(f'LLM text turn failed: {exc}')
             return None, {}
@@ -714,44 +738,31 @@ class RobotAgentNode(Node):
                     if img_part:
                         contents.append(img_part)
 
-            last_chunk   = None
-            for chunk in chat.send_message_stream(contents):
-                if self._cancel_flag.is_set():
-                    return None, {}
-                try:
-                    parts = chunk.candidates[0].content.parts if chunk.candidates else []
-                    for part in parts:
-                        fc = getattr(part, 'function_call', None)
-                        if fc:
-                            self.get_logger().info(f'LLM Calling Tool: {fc.name}')
-                        elif hasattr(part, 'text') and part.text:
-                            self.get_logger().info(f'LLM Text: {part.text}')
-                except Exception:
-                    pass
-                last_chunk = chunk
-            return self._extract_tool_call(last_chunk)
+            response = chat.send_message(message=contents)
+            return self._extract_tool_call(response)
         except Exception as exc:
             self.get_logger().error(f'LLM tool-result turn failed: {exc}')
             return None, {}
 
     def _extract_tool_call(self, response):
-        """Pull (tool_name, tool_args) from a response chunk."""
+        """Pull (tool_name, tool_args) from a response, logging text/thoughts."""
         if response is None:
             return None, {}
         try:
-            # Aggregate all parts across the response (in case of multi-part chunks)
+            # First, log any text/thoughts found in the response
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, 'text') and part.text:
+                    text_out = part.text.strip()
+                    if text_out:
+                        self.get_logger().info(f'LLM Text: {text_out}')
+
+            # Then, return the first function call found
             for part in response.candidates[0].content.parts:
                 fc = getattr(part, 'function_call', None)
                 if fc and getattr(fc, 'name', None):
                     return fc.name, dict(fc.args) if fc.args else {}
-            
-            # Fallback: if no native tool call, check if it wrote text that looks like a tool
-            # (Sometimes happens with preview models)
-            text = response.text or ""
-            if '"name":' in text and '"parameters":' in text:
-                self.get_logger().warn("LLM sent tool call as text instead of native function call!")
         except Exception as exc:
-            self.get_logger().warn(f'Could not extract function call: {exc}')
+            self.get_logger().warn(f'Could not extract parts from response: {exc}')
         return None, {}
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -791,6 +802,7 @@ class RobotAgentNode(Node):
             'stop_vision_pipeline':  self._tool_stop_vision,
             'patrol':                self._tool_patrol,
             'stop_patrol':           self._tool_stop_patrol,
+            'wait':                  self._tool_wait,
         }
         handler = _dispatch.get(name)
         if handler is None:
@@ -804,30 +816,80 @@ class RobotAgentNode(Node):
     def _tool_move_forward(self, args: dict) -> dict:
         dist  = float(args.get('distance', 0.0))
         factor = float(args.get('speed', 0.5))
-        # Map factor 0.1-1.0 -> 0.05-0.5 m/s
         speed = max(0.05, min(0.5, factor * 0.5))
         
+        with self._state_lock:
+            start_pose = dict(self.current_pose) if self.current_pose else None
+
         cmd   = json.dumps({'mode': 'move', 'distance': dist, 'speed': speed})
         self._pub_precise.publish(String(data=cmd))
         
-        # Calculate expected time + 5s buffer
-        timeout = abs(dist) / speed + 5.0
-        completed = self._wait_for_precise_move(timeout)
-        return {'completed': completed, 'distance_m': dist, 'speed_mps': speed}
+        # Smart buffer: 20s for sim lag, 10s for real hardware
+        buffer = 20.0 if self.use_sim_time else 10.0
+        timeout = abs(dist) / speed + buffer
+        started, finished = self._wait_for_precise_move(timeout)
+        
+        # Wait for the Manager's 0.5s status timer to tick
+        time.sleep(0.6)
+        
+        with self._state_lock:
+            end_pose = dict(self.current_pose) if self.current_pose else None
+            still_active = self.precise_active
+
+        # Calculate actual distance traveled from odom
+        actual_dist = 0.0
+        if start_pose and end_pose:
+            actual_dist = math.sqrt((end_pose['x'] - start_pose['x'])**2 + (end_pose['y'] - start_pose['y'])**2)
+
+        return {
+            'command_started': started,
+            'command_finished': finished,
+            'still_moving': still_active,
+            'commanded_dist': dist,
+            'actual_dist_m': round(actual_dist, 3),
+            'start_pose': start_pose,
+            'end_pose': end_pose
+        }
 
     def _tool_rotate(self, args: dict) -> dict:
         angle = float(args.get('angle', 0.0))
         factor = float(args.get('speed', 0.5))
-        # Map factor 0.1-1.0 -> 10-100 deg/s (RobotManager expects deg/s)
         speed = max(10.0, min(100.0, factor * 100.0))
         
+        with self._state_lock:
+            start_pose = dict(self.current_pose) if self.current_pose else None
+
         cmd   = json.dumps({'mode': 'rotate', 'angle': angle, 'speed': speed})
         self._pub_precise.publish(String(data=cmd))
         
-        # Calculate expected time + 5s buffer
-        timeout = abs(angle) / speed + 5.0
-        completed = self._wait_for_precise_move(timeout)
-        return {'completed': completed, 'angle_deg': angle, 'speed_dps': speed}
+        # Smart buffer: 20s for sim lag, 10s for real hardware
+        buffer = 20.0 if self.use_sim_time else 10.0
+        timeout = abs(angle) / speed + buffer
+        started, finished = self._wait_for_precise_move(timeout)
+        
+        # Wait for the Manager's 0.5s status timer to tick
+        time.sleep(0.6)
+        
+        with self._state_lock:
+            end_pose = dict(self.current_pose) if self.current_pose else None
+            still_active = self.precise_active
+
+        # Calculate actual rotation achieved from odom
+        actual_rot = 0.0
+        if start_pose and end_pose:
+            actual_rot = end_pose['yaw'] - start_pose['yaw']
+            while actual_rot > 180: actual_rot -= 360
+            while actual_rot < -180: actual_rot += 360
+
+        return {
+            'started': started,
+            'finished': finished,
+            'still_moving': still_active,
+            'commanded_angle': angle,
+            'actual_angle_deg': round(actual_rot, 2),
+            'start_pose': start_pose,
+            'end_pose': end_pose
+        }
 
     def _tool_navigate_to_location(self, args: dict) -> dict:
         name = args.get('name', '')
@@ -878,8 +940,19 @@ class RobotAgentNode(Node):
                 'note': 'Wait a moment for Nav2 to initialise, then use navigate_to_location or navigate_to_pose.'}
 
     def _tool_stop_navigation(self, _args: dict) -> dict:
+        """Safely stop Nav2.
+        If navigation is already inactive, skip the service call to avoid timeouts.
+        Returns a dict indicating the result.
+        """
+        # If Nav2 is not active, there's nothing to stop.
+        if not getattr(self, 'nav_active', False):
+            return {'navigation_stopped': True,
+                    'note': 'Nav2 was already inactive; no service call made.'}
+        # Otherwise, call the stop navigation service.
         ok = self._call_service(self._svc_stop_nav)
-        return {'navigation_stopped': ok}
+        return {'navigation_stopped': ok,
+                'note': 'Nav2 stop service invoked.'}
+
 
     def _tool_start_mapping(self, _args: dict) -> dict:
         ok = self._call_service(self._svc_start_mapping, timeout=10.0)
@@ -927,16 +1000,23 @@ class RobotAgentNode(Node):
 
     def _tool_start_camera(self, _args: dict) -> dict:
         ok = self._call_service(self._svc_start_camera, timeout=10.0)
-        if ok:
-            # Wait briefly for first frame to arrive
-            deadline = time.time() + 5.0
-            while time.time() < deadline:
-                with self._image_lock:
-                    if self._latest_image is not None:
-                        return {'camera_started': True, 'note': 'Camera ready, frame received.'}
-                time.sleep(0.1)
-            return {'camera_started': True, 'note': 'Camera started but no frame yet — retry capture shortly.'}
-        return {'camera_started': False, 'note': 'start_camera service failed.'}
+        
+        # If success is False, it might be because it's ALREADY active.
+        # We check our internal state to verify.
+        if not ok:
+            with self._state_lock:
+                if self.camera_active:
+                    return {'camera_started': True, 'note': 'Camera was already active.'}
+            return {'camera_started': False, 'note': 'start_camera service failed.'}
+
+        # Wait briefly for first frame to arrive
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            with self._image_lock:
+                if self._latest_image is not None:
+                    return {'camera_started': True, 'note': 'Camera ready, frame received.'}
+            time.sleep(0.1)
+        return {'camera_started': True, 'note': 'Camera started but no frame yet — retry capture shortly.'}
 
     def _tool_stop_camera(self, _args: dict) -> dict:
         ok = self._call_service(self._svc_stop_camera)
@@ -989,6 +1069,10 @@ class RobotAgentNode(Node):
 
     def _tool_start_vision(self, _args: dict) -> dict:
         ok = self._call_service(self._svc_start_vision)
+        if not ok:
+            with self._state_lock:
+                if self.vision_active:
+                    return {'vision_pipeline_started': True, 'note': 'Vision pipeline was already active.'}
         return {'vision_pipeline_started': ok}
 
     def _tool_stop_vision(self, _args: dict) -> dict:
@@ -1017,6 +1101,8 @@ class RobotAgentNode(Node):
         shoulder_rad = (math.atan2(dz, dx)
                         - math.atan2(self._L2 * math.sin(elbow_rad),
                                      self._L1 + self._L2 * math.cos(elbow_rad)))
+        # Offset by 90 degrees because robot 0.0 is Straight Down
+        shoulder_rad += (math.pi / 2.0)
         return shoulder_rad, elbow_rad
 
     def _tool_check_arm_reachable(self, args: dict) -> dict:
@@ -1097,6 +1183,11 @@ class RobotAgentNode(Node):
             self._pub_arm_positions(s, 0.0, 0.0)
         return {'reset': sides}
 
+    def _tool_wait(self, args: dict) -> dict:
+        seconds = float(args.get('seconds', 1.0))
+        time.sleep(seconds)
+        return {'waited_seconds': seconds}
+
     def _reset_arms(self):
         """Emergency home both arms."""
         self._pub_arm_positions('left',  0.0, 0.0)
@@ -1165,28 +1256,39 @@ class RobotAgentNode(Node):
             time.sleep(0.1)
         return 'timeout'
 
-    def _wait_for_precise_move(self, timeout: float = 30.0) -> bool:
-        """Wait for precise_move_active to go True then False."""
-        # Phase 1: wait up to 2s for the subprocess to start (precise_active → True)
-        start_dl = time.time() + 2.0
+    def _wait_for_precise_move(self, timeout: float = 30.0):
+        """Wait for precise_move_active to go True (started) then False (finished)."""
+        started = False
+        finished = False
+
+        # Phase 1: wait up to 10s for the subprocess to start (precise_active → True)
+        start_dl = time.time() + 10.0
         while time.time() < start_dl:
             if self._cancel_flag.is_set():
-                return False
+                return started, finished
             with self._state_lock:
                 if self.precise_active:
+                    started = True
                     break
             time.sleep(0.05)
+
+        if not started:
+            self.get_logger().warn('Precise move command timed out before starting.')
+            return started, finished
 
         # Phase 2: wait for move to complete (precise_active → False)
         deadline = time.time() + timeout
         while time.time() < deadline:
             if self._cancel_flag.is_set():
-                return False
+                return started, finished
             with self._state_lock:
                 if not self.precise_active:
-                    return True
+                    finished = True
+                    return started, finished
             time.sleep(0.1)
-        return False
+        
+        self.get_logger().warn('Precise move command timed out while moving.')
+        return started, finished
 
     # ─────────────────────────────────────────────────────────────────────────
     # Misc helpers
@@ -1207,16 +1309,14 @@ class RobotAgentNode(Node):
         if not client.wait_for_service(timeout_sec=timeout):
             self.get_logger().warn(f'Service {client.srv_name} not available.')
             return False
-        
+
         future = client.call_async(Trigger.Request())
-        # Use spin_until_future_complete for clean non-blocking wait in agent thread
-        # Note: this requires the node to NOT be spinning elsewhere on this specific future,
-        # but since we are in a separate thread, this is the standard ROS2 pattern.
-        rclpy.spin_until_future_complete(self, future, timeout_sec=timeout)
-        
-        if not future.done():
-            self.get_logger().warn(f'Service {client.srv_name} call timed out.')
-            return False
+        deadline = time.time() + timeout
+        while not future.done():
+            if time.time() > deadline:
+                self.get_logger().warn(f'Service {client.srv_name} call timed out.')
+                return False
+            time.sleep(0.02)
 
         try:
             return future.result().success
@@ -1232,13 +1332,16 @@ class RobotAgentNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = RobotAgentNode()
+    executor = rclpy.executors.MultiThreadedExecutor()
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':
