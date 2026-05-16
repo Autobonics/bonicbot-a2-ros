@@ -1,0 +1,24 @@
+agent:
+  gemini_api_key: ""        # leave blank to use GEMINI_API_KEY env var
+  model: "gemini-2.5-flash" # Use a stable state-of-the-art model
+  max_steps: 40             # Increased for complex tasks
+  step_timeout: 30.0        # seconds to wait for each LLM call
+
+arm:
+  L1: 0.12                  # upper-arm length  shoulder→elbow  (m)
+  L2: 0.13                  # forearm length    elbow→gripper   (m)
+  reach_min_m: 0.10
+  reach_max_m: 0.35
+  height_min_m: -0.05
+  height_max_m: 0.25
+
+joint_limits:
+  # Limits synchronized with description/ros2_control.xacro
+  shoulder_pitch_min_deg: -45.0   # -0.785 rad
+  shoulder_pitch_max_deg: 180.0   #  3.14  rad
+  elbow_min_deg:            0.0   #  0     rad
+  elbow_max_deg:           50.0   #  0.873 rad
+  neck_yaw_min_deg:       -90.0   # -1.571 rad
+  neck_yaw_max_deg:        90.0   #  1.571 rad
+  gripper_open:           -0.785  # rad  (-45°)
+  gripper_close:           1.047  # rad  (+60°)

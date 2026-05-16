@@ -34,6 +34,7 @@ class RobotManager(Node):
         self.vision_active = False
         self.precise_move_active = False
         self.follow_object_active = False
+        self.agent_active = False
         self.slam_process = None
         self.nav2_process = None
         self.camera_process = None
@@ -41,6 +42,7 @@ class RobotManager(Node):
         self.vision_process = None
         self.precise_move_process = None
         self.follow_object_process = None
+        self.agent_process = None
 
         # Precise movement queue
         self.precise_move_queue = []
@@ -131,6 +133,7 @@ class RobotManager(Node):
         self.follow_object_active_pub   = self.create_publisher(Bool, '/robot/follow_object_active',   10)
         self.patrol_active_pub          = self.create_publisher(Bool,   '/robot/patrol_active',           10)
         self.patrol_status_pub          = self.create_publisher(String, '/robot/patrol_status',           10)
+        self.agent_active_pub           = self.create_publisher(Bool,   '/robot/agent_active',            10)
         
         # Navigation status publishers
         self.nav_state_pub = self.create_publisher(String, '/robot/nav_status', 10)
@@ -195,6 +198,10 @@ class RobotManager(Node):
         # Patrol: publish JSON array of location names e.g. '["kitchen","hallway","bedroom"]'
         self.create_subscription(String, '/robot/patrol_locations',   self.patrol_locations_callback, 10)
         self.create_service(Trigger,     '/robot/stop_patrol',        self.stop_patrol_callback)
+
+        # AI Agent
+        self.create_service(Trigger, '/robot/start_agent', self.start_agent_callback)
+        self.create_service(Trigger, '/robot/stop_agent',  self.stop_agent_callback)
 
         # Publish list of saved locations (JSON string)
         self.locations_list_pub = self.create_publisher(String, '/robot/locations_list', 10)
@@ -407,6 +414,17 @@ class RobotManager(Node):
         patrol_status_msg = String()
         patrol_status_msg.data = self.patrol_status
         self.patrol_status_pub.publish(patrol_status_msg)
+
+        # Auto-detect agent process exit
+        if self.agent_active and self.agent_process is not None:
+            if self.agent_process.poll() is not None:
+                self.agent_process = None
+                self.agent_active = False
+                self.get_logger().info('AI agent stopped')
+
+        agent_msg = Bool()
+        agent_msg.data = self.agent_active
+        self.agent_active_pub.publish(agent_msg)
 
         for pub, val in [
             (self.yolo_enabled_pub,     self.yolo_enabled),
@@ -1489,6 +1507,53 @@ class RobotManager(Node):
             response.message = f'Failed to stop patrol: {str(e)}'
         return response
 
+# ── AI Agent callbacks ────────────────────────────────────────────────────────
+
+    def start_agent_callback(self, request, response):
+        if self.agent_active:
+            response.success = False
+            response.message = 'AI agent already active'
+            return response
+        try:
+            env = os.environ.copy()
+            self.agent_process = subprocess.Popen(
+                ['ros2', 'run', 'my_bot', 'robot_agent.py',
+                 '--ros-args', '-p', f'use_sim_time:={str(self.use_sim_time).lower()}'],
+                env=env,
+            )
+            self.agent_active = True
+            response.success = True
+            response.message = 'AI agent started'
+            self.get_logger().info('AI agent started')
+        except Exception as e:
+            response.success = False
+            response.message = f'Failed to start AI agent: {str(e)}'
+            self.get_logger().error(f'Failed to start AI agent: {e}')
+        return response
+
+    def stop_agent_callback(self, request, response):
+        if not self.agent_active:
+            response.success = False
+            response.message = 'AI agent not active'
+            return response
+        try:
+            if self.agent_process:
+                self.agent_process.send_signal(signal.SIGINT)
+                try:
+                    self.agent_process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self.agent_process.kill()
+                self.agent_process = None
+            self.agent_active = False
+            response.success = True
+            response.message = 'AI agent stopped'
+            self.get_logger().info('AI agent stopped')
+        except Exception as e:
+            response.success = False
+            response.message = f'Failed to stop AI agent: {str(e)}'
+            self.get_logger().error(f'Failed to stop AI agent: {e}')
+        return response
+
 
 def main(args=None):
     rclpy.init(args=args)
@@ -1514,6 +1579,8 @@ def main(args=None):
             node.precise_move_process.send_signal(signal.SIGINT)
         if node.follow_object_process:
             node.follow_object_process.send_signal(signal.SIGINT)
+        if node.agent_process:
+            node.agent_process.send_signal(signal.SIGINT)
         node.destroy_node()
         # Only shutdown if context is still valid
         if rclpy.ok():
