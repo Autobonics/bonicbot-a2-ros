@@ -14,33 +14,38 @@
     <xacro:property name="body_mass" value="5.0"/>
     
     <!-- Shoulder Properties -->
-    <xacro:property name="shoulder_radius" value="0.035"/>
+    <xacro:property name="shoulder_radius" value="0.025"/>
     <xacro:property name="shoulder_length" value="0.080"/>
     <xacro:property name="shoulder_mass" value="0.3"/>
     
     <!-- Upper Arm Properties -->
-    <xacro:property name="upper_arm_radius" value="0.025"/>
+    <xacro:property name="upper_arm_radius" value="0.01"/>
     <xacro:property name="upper_arm_length" value="0.12"/>
     <xacro:property name="upper_arm_mass" value="0.2"/>
     
     <!-- Forearm Properties -->
-    <xacro:property name="forearm_radius" value="0.020"/>
-    <xacro:property name="forearm_length" value="0.13"/>
+    <xacro:property name="forearm_radius" value="0.0115"/>
+    <xacro:property name="forearm_length" value="0.125"/>
     <xacro:property name="forearm_mass" value="0.15"/>
 
     <!-- Gripper Properties -->
-    <xacro:property name="gripper_palm_length" value="0.03"/>
+    <xacro:property name="gripper_palm_length" value="0.0335"/>
     <xacro:property name="gripper_palm_width" value="0.05"/>
     <xacro:property name="gripper_palm_height" value="0.03"/>
     <xacro:property name="gripper_palm_mass" value="0.05"/>
-    <xacro:property name="gripper_finger_length" value="0.06"/>
-    <xacro:property name="gripper_finger_width" value="0.015"/>
-    <xacro:property name="gripper_finger_height" value="0.01"/>
+    <xacro:property name="gripper_finger_length" value="0.03"/>
+    <xacro:property name="gripper_finger_width" value="0.00375"/>
+    <xacro:property name="gripper_finger_height" value="0.004"/>
     <xacro:property name="gripper_finger_mass" value="0.01"/>
+    <xacro:property name="gripper_finger_ext_length" value="0.0325"/>
+    <xacro:property name="gripper_finger_ext_width" value="0.005025"/>
+    <xacro:property name="gripper_finger_ext_height" value="0.00425"/>
+    <xacro:property name="gripper_finger_ext_mass" value="0.01"/>
+
 
     <!-- Head/Neck Properties -->
     <xacro:property name="neck_radius" value="0.025"/>
-    <xacro:property name="neck_length" value="0.01"/>
+    <xacro:property name="neck_length" value="0.05"/>
     <xacro:property name="neck_mass" value="0.1"/>
     <xacro:property name="head_radius" value="0.08"/>
     <xacro:property name="head_mass" value="0.3"/>
@@ -51,7 +56,7 @@
 
     <xacro:property name="chassis_length" value="0.228"/>
     <xacro:property name="chassis_width" value="0.22"/>
-    <xacro:property name="chassis_height" value="0.125"/>
+    <xacro:property name="chassis_height" value="0.0925"/>
     <xacro:property name="chassis_mass" value="10.0"/>
     <xacro:property name="wheel_radius" value="0.06"/>
     <xacro:property name="wheel_thickness" value="0.055"/>

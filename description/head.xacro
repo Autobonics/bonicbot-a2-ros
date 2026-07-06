@@ -72,4 +72,21 @@
         <material>Gazebo/Red</material>
     </gazebo>
 
+    <!-- Visual-only STL mesh attached to head -->
+    <joint name="external_head_mesh_joint" type="fixed">
+        <parent link="head"/>
+        <child link="external_head_mesh_link"/>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 ${pi/2}"/>
+    </joint>
+
+    <link name="external_head_mesh_link">
+        <visual>
+            <origin xyz="0 -0.71738562 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://my_bot/description/meshes/head-stl.stl" scale="0.001 0.001 0.001"/>
+            </geometry>
+            <material name="grey"/>
+        </visual>
+    </link>
+
 </robot>
