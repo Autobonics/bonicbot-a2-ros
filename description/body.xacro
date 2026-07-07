@@ -80,7 +80,7 @@
         <inertial>
             <origin xyz="0.0 0.0 0.170963" rpy="0 0 0"/>
             <mass value="${body_mass}"/>
-            <inertia ixx="0.095110" ixy="0.0" ixz="0.0" iyy="0.085819" iyz="0.0" izz="0.018262"/>
+            <inertia ixx="0.08667" ixy="0.0" ixz="0.0" iyy="0.08667" iyz="0.0" izz="0.06533"/>
         </inertial>
     </link>
 
