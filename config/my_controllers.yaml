@@ -76,11 +76,11 @@ head_controller:
 left_gripper_controller:
   ros__parameters:
     joints:
-      - left_gripper_finger1_joint
+      - left_gripper_finger2_joint
     interface_name: position
 
 right_gripper_controller:
   ros__parameters:
     joints:
-      - right_gripper_finger1_joint
+      - right_gripper_finger2_joint
     interface_name: position
