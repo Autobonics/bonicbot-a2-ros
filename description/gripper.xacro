@@ -38,20 +38,20 @@
     </gazebo>
 
     <!-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ -->
-    <!-- Visual-only STL mesh attached to left gripper palm (linked to finger2 motion) -->
+    <!-- Visual-only colored mesh attached to left gripper (converted from left-gripper.glb) -->
     <joint name="external_left_gripper_mesh_joint" type="fixed">
         <parent link="left_gripper_finger2"/>
         <child link="external_left_gripper_mesh_link"/>
-        <origin xyz="0.0972 0.0578 -0.3265" rpy="1.684 -0.7833 -0.0124"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
     </joint>
 
     <link name="external_left_gripper_mesh_link">
         <visual>
-            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <origin xyz="-0.105 0.02 0.0875" rpy=".115 -0.95 0"/>
             <geometry>
-                <mesh filename="package://my_bot/description/meshes/left-gripper.stl" scale="0.001 0.001 0.001"/>
+                <mesh filename="package://my_bot/description/meshes/left-gripper.obj"/>
             </geometry>
-            <material name="dark_grey"/>
+            <material name="grey"/>
         </visual>
     </link> 
     <!-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ -->
@@ -131,11 +131,11 @@
 
     <link name="left_gripper_finger2">
         <visual>
-            <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2.5}" rpy="0 0 0"/>
+            <!-- <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2.5}" rpy="0 0 0"/>
             <geometry>
                 <box size="${gripper_finger_width} ${gripper_finger_height} ${gripper_finger_length}"/>
             </geometry>
-            <material name="light_grey"/>
+            <material name="light_grey"/> -->
         </visual>
         <collision>
             <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2}" rpy="0 0 0"/>
@@ -162,11 +162,11 @@
 
     <link name="left_gripper_finger2_ext">
         <visual>
-            <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/3.5}" rpy="0 0 0"/>
+            <!-- <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/3.5}" rpy="0 0 0"/>
             <geometry>
                 <box size="${gripper_finger_ext_width} ${gripper_finger_ext_height} ${gripper_finger_ext_length}"/>
             </geometry>
-            <material name="light_grey"/>
+            <material name="light_grey"/> -->
         </visual>
         <collision>
             <origin xyz="-${gripper_finger_ext_width/2} 0 -${gripper_finger_ext_length/3.5}" rpy="0 0 0"/>
@@ -198,11 +198,11 @@
 
     <link name="left_gripper_finger3">
         <visual>
-            <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2.5}" rpy="0 0 0"/>
+            <!-- <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2.5}" rpy="0 0 0"/>
             <geometry>
                 <box size="${gripper_finger_width} ${gripper_finger_height} ${gripper_finger_length}"/>
             </geometry>
-            <material name="light_grey"/>
+            <material name="light_grey"/> -->
         </visual>
         <collision>
             <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2}" rpy="0 0 0"/>
@@ -229,11 +229,11 @@
 
     <link name="left_gripper_finger3_ext">
         <visual>
-            <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/3.5}" rpy="0 0 0"/>
+            <!-- <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/3.5}" rpy="0 0 0"/>
             <geometry>
                 <box size="${gripper_finger_ext_width} ${gripper_finger_ext_height} ${gripper_finger_ext_length}"/>
             </geometry>
-            <material name="light_grey"/>
+            <material name="light_grey"/> -->
         </visual>
         <collision>
             <origin xyz="-${gripper_finger_ext_width/2} 0 -${gripper_finger_ext_length/2}" rpy="0 0 0"/>
@@ -286,24 +286,23 @@
     </gazebo>
 
     <!-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ -->
-    <!-- Visual-only STL mesh attached to right gripper palm (linked to finger2 motion) -->
+    <!-- Visual-only colored mesh attached to right gripper (converted from right-gripper.glb) -->
 
     <joint name="external_right_gripper_mesh_joint" type="fixed">
         <parent link="right_gripper_finger2"/>
         <child link="external_right_gripper_mesh_link"/>
-        <origin xyz="0.0975 -0.0351 -0.3272" rpy="1.457 -0.783 0.021"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
     </joint>
 
     <link name="external_right_gripper_mesh_link">
         <visual>
-            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <origin xyz="-0.105 0 0.0875" rpy=".115 .95 -3.1416"/>
             <geometry>
-                <mesh filename="package://my_bot/description/meshes/right-gripper.stl" scale="0.001 0.001 0.001"/>
+                <mesh filename="package://my_bot/description/meshes/right-gripper.obj"/>
             </geometry>
-            <material name="dark_grey"/>
+            <material name="grey"/>
         </visual>
     </link> 
-
     <!-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ -->
 
     <!-- Right Gripper Finger 1 (fixed to the palm) -->
@@ -384,11 +383,11 @@
 
     <link name="right_gripper_finger2">
         <visual>
-            <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2.5}" rpy="0 0 0"/>
+            <!-- <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2.5}" rpy="0 0 0"/>
             <geometry>
                 <box size="${gripper_finger_width} ${gripper_finger_height} ${gripper_finger_length}"/>
             </geometry>
-            <material name="light_grey"/>
+            <material name="light_grey"/> -->
         </visual>
         <collision>
             <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2}" rpy="0 0 0"/>
@@ -415,11 +414,11 @@
 
     <link name="right_gripper_finger2_ext">
         <visual>
-            <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/3.5}" rpy="0 0 0"/>
+            <!-- <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/3.5}" rpy="0 0 0"/>
             <geometry>
                 <box size="${gripper_finger_ext_width} ${gripper_finger_ext_height} ${gripper_finger_ext_length}"/>
             </geometry>
-            <material name="light_grey"/>
+            <material name="light_grey"/> -->
         </visual>
         <collision>
             <origin xyz="-${gripper_finger_ext_width/2} 0 -${gripper_finger_ext_length/3.5}" rpy="0 0 0"/>
@@ -450,11 +449,11 @@
 
     <link name="right_gripper_finger3">
         <visual>
-            <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2.5}" rpy="0 0 0"/>
+            <!-- <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2.5}" rpy="0 0 0"/>
             <geometry>
                 <box size="${gripper_finger_width} ${gripper_finger_height} ${gripper_finger_length}"/>
             </geometry>
-            <material name="light_grey"/>
+            <material name="light_grey"/> -->
         </visual>
         <collision>
             <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2}" rpy="0 0 0"/>
@@ -481,11 +480,11 @@
 
     <link name="right_gripper_finger3_ext">
         <visual>
-            <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/3.5}" rpy="0 0 0"/>
+            <!-- <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/3.5}" rpy="0 0 0"/>
             <geometry>
                 <box size="${gripper_finger_ext_width} ${gripper_finger_ext_height} ${gripper_finger_ext_length}"/>
             </geometry>
-            <material name="light_grey"/>
+            <material name="light_grey"/> -->
         </visual>
         <collision>
             <origin xyz="-${gripper_finger_ext_width/2} 0 -${gripper_finger_ext_length/2}" rpy="0 0 0"/>

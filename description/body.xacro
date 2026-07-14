@@ -125,22 +125,21 @@
     </gazebo>
 
     <!-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ -->
-    <!-- Visual-only STL mesh attached to left shoulder -->
+    <!-- Visual-only colored mesh attached to left shoulder (converted from left-shoulder.glb) -->
     <joint name="external_left_shoulder_mesh_joint" type="fixed"> 
         <parent link="left_shoulder"/>
         <child link="external_left_shoulder_mesh_link"/>
-        <origin xyz="0 0 0" rpy="${pi/2} ${-pi/128} ${pi/2}"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
     </joint>
 
     <link name="external_left_shoulder_mesh_link">
         <visual>
-            <origin xyz="-0.2775 -0.50475 0.013000" rpy="0 0 -0.3"/>
+            <origin xyz="0 -0.06175 .0185" rpy="0 -0.245 -1.5708"/>
             <geometry>
-                <mesh filename="package://my_bot/description/meshes/left-shoulder.stl" scale="0.001 0.001 0.001"/>
+                <mesh filename="package://my_bot/description/meshes/left-shoulder.obj"/>
             </geometry>
-            <material name="grey"/>
         </visual>
-    </link>  
+    </link> 
     <!-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ -->
 
 
@@ -210,21 +209,20 @@
     </gazebo>
 
     <!-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ -->
-    <!-- Visual-only STL mesh attached to left forearm  -->
+    <!-- Visual-only colored mesh attached to left forearm (converted from left-forearm.glb)--> 
     <joint name="external_left_forearm_mesh_joint" type="fixed">
         <parent link="left_forearm"/>
         <child link="external_left_forearm_mesh_link"/>
-        <origin xyz="0 0 0" rpy="${pi/1.9} ${-pi/96} ${pi/2}"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
     </joint>
 
     <link name="external_left_forearm_mesh_link">
         <visual>
-            <origin xyz="-0.2235 -0.4125 0.013" rpy="0 0 -0.175"/>
+            <origin xyz="0.005 -0.0125 -0.00275" rpy=".1 -0.115 1.5708"/>
             <geometry>
-                <mesh filename="package://my_bot/description/meshes/left-forearm.stl" scale="0.001 0.001 0.001"/>
+                <mesh filename="package://my_bot/description/meshes/left-forearm.obj"/>
             </geometry>
-            <material name="grey"/>
-        </visual>
+        </visual>y
     </link> 
     <!-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ -->
 
@@ -265,20 +263,20 @@
     </gazebo>
 
     <!-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ -->
-    <!-- Visual-only STL mesh attached to right shoulder -->
+    <!-- Visual-only colored mesh attached to right shoulder (converted from right-shoulder.glb) -->
     <joint name="external_right_shoulder_mesh_joint" type="fixed">
         <parent link="right_shoulder"/>
         <child link="external_right_shoulder_mesh_link"/>
-        <origin xyz="0 0 0" rpy="${pi/2} ${pi/512} ${-pi/2}"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
     </joint>
 
     <link name="external_right_shoulder_mesh_link">
         <visual>
-            <origin xyz="-0.2775 -0.50475 -0.013000" rpy="0 0 -0.3"/>
+        
+            <origin xyz="0 0.06175 .0185" rpy="0 -0.245 1.5708"/>
             <geometry>
-                <mesh filename="package://my_bot/description/meshes/right-sholder.stl" scale="0.001 0.001 0.001"/>
+                <mesh filename="package://my_bot/description/meshes/right-shoulder.obj"/>
             </geometry>
-            <material name="grey"/>
         </visual>
     </link> 
     <!-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ -->
@@ -348,47 +346,37 @@
         <self_collide>false</self_collide>
     </gazebo>
 
-     <!-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ -->
-    <!-- Visual-only STL mesh attached to right forearm -->
+    <!-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ -->
+    <!-- Visual-only colored mesh attached to right forearm (converted from right-forearm.glb) -->
     <joint name="external_right_forearm_mesh_joint" type="fixed">
         <parent link="right_forearm"/>
         <child link="external_right_forearm_mesh_link"/>
-        <origin xyz="0 0 0" rpy="${pi/2.1} ${-pi/96} ${-pi/2}"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
     </joint>
 
     <link name="external_right_forearm_mesh_link">
         <visual>
-            <origin xyz="-0.2235 -0.4125 -0.013" rpy="0 0 -0.165"/>
+            <origin xyz="0.005 0.0125 -0.00275" rpy="0.1 0.115 1.5708"/>
             <geometry>
-                <mesh filename="package://my_bot/description/meshes/right-forearm.stl" scale="0.001 0.001 0.001"/>
+                <mesh filename="package://my_bot/description/meshes/right-forearm.obj"/>
             </geometry>
-            <material name="grey"/>
         </visual>
-    </link> 
+    </link>
     <!-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ -->
     
-    <!-- Visual-only STL mesh attached to body -->
+    <!-- Visual-only colored mesh attached to body (converted from body.glb) -->
     <joint name="external_body_mesh_joint" type="fixed">
         <parent link="body"/>
         <child link="external_body_mesh_link"/>
-        <origin xyz="0 0 0" rpy="${pi/2} 0 ${pi/2}"/>
+        <origin xyz="0 0 0" rpy="0 0 ${pi/2}"/>
     </joint>
 
     <link name="external_body_mesh_link">
         <visual>
-            <origin xyz="0 -0.226 0.013" rpy="0 0 0"/>
+            <origin xyz="0 -0.0125 -0.225" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://my_bot/description/meshes/body-stl.stl" scale="0.001 0.001 0.001"/>
+                <mesh filename="package://my_bot/description/meshes/body.obj"/>
             </geometry>
-            <material name="grey"/>
         </visual>
-        <visual>
-            <origin xyz="0 -0.226 0.013" rpy="0 0 0"/>
-            <geometry>
-                <mesh filename="package://my_bot/description/meshes/BonicLogo-stl.stl" scale="0.001 0.001 0.001"/>
-            </geometry>
-            <material name="black"/>
-        </visual>
-    </link> 
-
+    </link>
 </robot>
