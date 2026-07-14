@@ -15,13 +15,6 @@
 
     <!-- Left Gripper Palm -->
     <link name="left_gripper_palm">
-        <visual>
-             <!-- <origin xyz="0 .00275 -${gripper_palm_length/2}" rpy="0 0 0"/>
-            <geometry>
-                <box size="${gripper_palm_width} ${gripper_palm_height} ${gripper_palm_length}"/>
-            </geometry>
-            <material name="dark_grey"/> -->
-        </visual>
         <collision>
             <origin xyz="0 .00275 -${gripper_palm_length/2}" rpy="0 0 0"/>
             <geometry>
@@ -130,13 +123,6 @@
     </joint>
 
     <link name="left_gripper_finger2">
-        <visual>
-            <!-- <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2.5}" rpy="0 0 0"/>
-            <geometry>
-                <box size="${gripper_finger_width} ${gripper_finger_height} ${gripper_finger_length}"/>
-            </geometry>
-            <material name="light_grey"/> -->
-        </visual>
         <collision>
             <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2}" rpy="0 0 0"/>
             <geometry>
@@ -161,13 +147,6 @@
     </joint>
 
     <link name="left_gripper_finger2_ext">
-        <visual>
-            <!-- <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/3.5}" rpy="0 0 0"/>
-            <geometry>
-                <box size="${gripper_finger_ext_width} ${gripper_finger_ext_height} ${gripper_finger_ext_length}"/>
-            </geometry>
-            <material name="light_grey"/> -->
-        </visual>
         <collision>
             <origin xyz="-${gripper_finger_ext_width/2} 0 -${gripper_finger_ext_length/3.5}" rpy="0 0 0"/>
             <geometry>
@@ -197,13 +176,6 @@
     </joint>
 
     <link name="left_gripper_finger3">
-        <visual>
-            <!-- <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2.5}" rpy="0 0 0"/>
-            <geometry>
-                <box size="${gripper_finger_width} ${gripper_finger_height} ${gripper_finger_length}"/>
-            </geometry>
-            <material name="light_grey"/> -->
-        </visual>
         <collision>
             <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2}" rpy="0 0 0"/>
             <geometry>
@@ -228,13 +200,6 @@
     </joint>
 
     <link name="left_gripper_finger3_ext">
-        <visual>
-            <!-- <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/3.5}" rpy="0 0 0"/>
-            <geometry>
-                <box size="${gripper_finger_ext_width} ${gripper_finger_ext_height} ${gripper_finger_ext_length}"/>
-            </geometry>
-            <material name="light_grey"/> -->
-        </visual>
         <collision>
             <origin xyz="-${gripper_finger_ext_width/2} 0 -${gripper_finger_ext_length/2}" rpy="0 0 0"/>
             <geometry>
@@ -263,13 +228,6 @@
 
     <!-- Right Gripper Palm -->
     <link name="right_gripper_palm">
-        <visual>
-            <!-- <origin xyz="0 0.0275 -${gripper_palm_length/2}" rpy="0 0 0"/>
-            <geometry>
-                <box size="${gripper_palm_width} ${gripper_palm_height} ${gripper_palm_length}"/>
-            </geometry>
-            <material name="dark_grey"/> -->
-        </visual>
         <collision>
             <origin xyz="0 0 -${gripper_palm_length/2}" rpy="0 0 0"/>
             <geometry>
@@ -382,13 +340,6 @@
     </joint>
 
     <link name="right_gripper_finger2">
-        <visual>
-            <!-- <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2.5}" rpy="0 0 0"/>
-            <geometry>
-                <box size="${gripper_finger_width} ${gripper_finger_height} ${gripper_finger_length}"/>
-            </geometry>
-            <material name="light_grey"/> -->
-        </visual>
         <collision>
             <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2}" rpy="0 0 0"/>
             <geometry>
@@ -413,13 +364,6 @@
     </joint>
 
     <link name="right_gripper_finger2_ext">
-        <visual>
-            <!-- <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/3.5}" rpy="0 0 0"/>
-            <geometry>
-                <box size="${gripper_finger_ext_width} ${gripper_finger_ext_height} ${gripper_finger_ext_length}"/>
-            </geometry>
-            <material name="light_grey"/> -->
-        </visual>
         <collision>
             <origin xyz="-${gripper_finger_ext_width/2} 0 -${gripper_finger_ext_length/3.5}" rpy="0 0 0"/>
             <geometry>
@@ -448,13 +392,6 @@
     </joint>
 
     <link name="right_gripper_finger3">
-        <visual>
-            <!-- <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2.5}" rpy="0 0 0"/>
-            <geometry>
-                <box size="${gripper_finger_width} ${gripper_finger_height} ${gripper_finger_length}"/>
-            </geometry>
-            <material name="light_grey"/> -->
-        </visual>
         <collision>
             <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/2}" rpy="0 0 0"/>
             <geometry>
@@ -479,13 +416,6 @@
     </joint>
 
     <link name="right_gripper_finger3_ext">
-        <visual>
-            <!-- <origin xyz="-${gripper_finger_width/2} 0 -${gripper_finger_length/3.5}" rpy="0 0 0"/>
-            <geometry>
-                <box size="${gripper_finger_ext_width} ${gripper_finger_ext_height} ${gripper_finger_ext_length}"/>
-            </geometry>
-            <material name="light_grey"/> -->
-        </visual>
         <collision>
             <origin xyz="-${gripper_finger_ext_width/2} 0 -${gripper_finger_ext_length/2}" rpy="0 0 0"/>
             <geometry>

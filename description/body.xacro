@@ -10,7 +10,7 @@
         <parent link="chassis"/>
         <child link="body"/>
         <!-- Position body on top of chassis -->
-        <origin xyz="-0.013 0 0.226" rpy="0 0 0"/>
+        <origin xyz="-0.013 0 ${body_joint_z_rel_chassis}" rpy="0 0 0"/>
     </joint>
 
     <link name="body">

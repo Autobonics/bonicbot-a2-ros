@@ -50,12 +50,6 @@
 
     <!-- Head Link -->
     <link name="head">
-        <visual>
-            <!-- <origin xyz="0 0 0" rpy="0 0 0"/>
-            <geometry>
-                <sphere radius="${head_radius}"/>
-            </geometry> -->
-        </visual>
         <collision>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
