@@ -50,13 +50,6 @@
 
     <!-- Head Link -->
     <link name="head">
-        <visual>
-            <origin xyz="0 0 0" rpy="0 0 0"/>
-            <geometry>
-                <sphere radius="${head_radius}"/>
-            </geometry>
-            <material name="grey"/>
-        </visual>
         <collision>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
@@ -71,5 +64,21 @@
     <gazebo reference="head">
         <material>Gazebo/Red</material>
     </gazebo>
+
+    <!-- Visual-only colored mesh attached to head (converted from head.glb) -->
+    <joint name="external_head_mesh_joint" type="fixed">
+        <parent link="head"/>
+        <child link="external_head_mesh_link"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+
+    <link name="external_head_mesh_link">
+        <visual>
+            <origin xyz="-0.001 0 -0.1225" rpy="0 0 1.5708"/>
+            <geometry>
+                <mesh filename="package://my_bot/description/meshes/head.obj"/>
+            </geometry>
+        </visual>
+    </link> 
 
 </robot>

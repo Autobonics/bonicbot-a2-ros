@@ -4,7 +4,7 @@ from ament_index_python.packages import get_package_share_directory
 
 
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
+from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, SetEnvironmentVariable
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 
@@ -16,6 +16,19 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description():
 
     package_name='my_bot' 
+    
+    # Set Gazebo resource paths so it can find the meshes
+    pkg_share = get_package_share_directory(package_name)
+    pkg_share_parent = os.path.dirname(pkg_share)
+    
+    set_ign_resource_path = SetEnvironmentVariable(
+        name='IGN_GAZEBO_RESOURCE_PATH',
+        value=pkg_share_parent
+    )
+    set_gz_resource_path = SetEnvironmentVariable(
+        name='GZ_SIM_RESOURCE_PATH',
+        value=pkg_share_parent
+    )
     
     # Declare world as a launch argument
     world_arg = DeclareLaunchArgument(
@@ -148,6 +161,8 @@ def generate_launch_description():
 
    
     return LaunchDescription([
+        set_ign_resource_path,
+        set_gz_resource_path,
         world_arg,
         rsp,
         joystick,
