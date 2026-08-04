@@ -980,10 +980,10 @@ void DiffBotSystemHardware::initializeServoMapping()
   // right gripper - 1, right elbow - 3, right pitch - 6
   // left gripper - 7, left elbow - 9, left pitch - 12, neck - 13
   
-  joint_to_servo_id_["right_gripper_finger1_joint"] = 1;
+  joint_to_servo_id_["right_gripper_finger2_joint"] = 1;
   joint_to_servo_id_["right_elbow_joint"] = 3;
   joint_to_servo_id_["right_shoulder_pitch_joint"] = 6;
-  joint_to_servo_id_["left_gripper_finger1_joint"] = 7;
+  joint_to_servo_id_["left_gripper_finger2_joint"] = 7;
   joint_to_servo_id_["left_elbow_joint"] = 9;
   joint_to_servo_id_["left_shoulder_pitch_joint"] = 12;
   joint_to_servo_id_["neck_yaw_joint"] = 13;
