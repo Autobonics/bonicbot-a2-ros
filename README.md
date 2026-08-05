@@ -24,6 +24,33 @@ colcon build
 source install/setup.bash
 ```
 
+### 4. Download AI Vision Models
+
+> **Note:** Only needed if you're using the AI vision pipeline. Skip this on the real robot — the model files already exist there. Run these commands once after cloning.
+
+The vision pipeline requires 4 model files placed in `~/models/`:
+
+```bash
+mkdir -p ~/models
+
+# MediaPipe: Pose Landmarker
+wget -O ~/models/pose_landmarker.task \
+  https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task
+
+# MediaPipe: Face Detector
+wget -O ~/models/face_detector.tflite \
+  https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite
+
+# MediaPipe: Gesture Recognizer
+wget -O ~/models/gesture_recognizer.task \
+  https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task
+
+# YOLOv8n ONNX — must be exported at imgsz=320 (no pre-built download available)
+pip install ultralytics
+yolo export model=yolov8n.pt format=onnx imgsz=320
+mv yolov8n.onnx ~/models/
+```
+
 ## Usage
 
 ### Phase 1: Create Map (SLAM Mapping)
