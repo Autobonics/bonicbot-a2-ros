@@ -7,6 +7,7 @@ from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, SetEnvironmentVariable
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
+from launch.conditions import IfCondition, UnlessCondition
 
 from launch_ros.actions import Node
 
@@ -36,6 +37,14 @@ def generate_launch_description():
         default_value='my_bot_world.sdf',
         description='World file name (must be in worlds/ directory)'
     )
+
+    # Declare use_real_camera argument
+    use_real_camera_arg = DeclareLaunchArgument(
+        'use_real_camera',
+        default_value='False',
+        description='Use real laptop webcam (True) or Gazebo camera bridge (False)'
+    )
+    use_real_camera = LaunchConfiguration('use_real_camera')
     
     world_config = LaunchConfiguration('world')
     world_path = PathJoinSubstitution([
@@ -92,20 +101,29 @@ def generate_launch_description():
         output='screen'
     )
 
-    # Dedicated Image Bridge for Camera (Handles compression natively)
+    # Gazebo camera bridge nodes (active when use_real_camera:=False)
     image_bridge = Node(
         package='ros_gz_image',
         executable='image_bridge',
         arguments=['/camera/image_raw'],
-        output='screen'
+        output='screen',
+        condition=UnlessCondition(use_real_camera)
     )
-    
-    # Bridge for Camera Info
+
     camera_info_bridge = Node(
         package='ros_gz_bridge',
         executable='parameter_bridge',
         arguments=['/camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo'],
-        output='screen'
+        output='screen',
+        condition=UnlessCondition(use_real_camera)
+    )
+
+    # Real camera (laptop webcam) — active when use_real_camera:=True
+    real_camera = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([os.path.join(
+            get_package_share_directory(package_name), 'launch', 'camera.launch.py'
+        )]),
+        condition=IfCondition(use_real_camera)
     )
 
     diff_drive_spawner = Node(
@@ -164,6 +182,7 @@ def generate_launch_description():
         set_ign_resource_path,
         set_gz_resource_path,
         world_arg,
+        use_real_camera_arg,
         rsp,
         joystick,
         twist_mux,
@@ -172,6 +191,7 @@ def generate_launch_description():
         bridge,
         image_bridge,
         camera_info_bridge,
+        real_camera,
         diff_drive_spawner,
         joint_broad_spawner,
         left_arm_spawner,
