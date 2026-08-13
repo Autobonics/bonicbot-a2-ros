@@ -6,8 +6,8 @@
 
             <left_joint>left_wheel_joint</left_joint>
             <right_joint>right_wheel_joint</right_joint>
-            <wheel_separation>0.2895</wheel_separation>
-            <wheel_diameter>0.12</wheel_diameter>
+            <wheel_separation>${wheel_offset_y * 2}</wheel_separation>
+            <wheel_diameter>${wheel_radius * 2}</wheel_diameter>
 
 
             <max_wheel_torque>200</max_wheel_torque>

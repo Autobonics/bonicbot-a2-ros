@@ -4,16 +4,34 @@
     <joint name="camera_joint" type="fixed">
         <parent link="head"/>
         <child link="camera_link"/>
-        <origin xyz="0.09 0 0.035" rpy="0 0 0"/>
+        <origin xyz="0.085 0 0.033" rpy="0 0 0"/>
     </joint>
+
+    <!-- Prevent URDF→SDF fixed-joint reduction from lumping camera_link
+         into the neck link. Without this, the camera sensor's world pose
+         gets baked at spawn time and never updates when the robot moves,
+         producing a frozen / gray-fill image.  (SDFormat 12 / gz-sim Fortress) -->
+    <gazebo reference="camera_joint">
+        <disableFixedJointLumping>true</disableFixedJointLumping>
+    </gazebo>
 
     <link name="camera_link">
         <visual>
+            <origin xyz="0 0 0" rpy="0 ${pi/2} 0"/>
             <geometry>
-                <box size="0.010 0.03 0.03"/>
+                <cylinder radius="0.005" length="0.005"/>
             </geometry>
             <material name="black"/>
         </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 ${pi/2} 0"/>
+            <geometry>
+                <cylinder radius="0.005" length="0.005"/>
+            </geometry>
+        </collision>
+        <xacro:inertial_cylinder mass="0.02" length="0.005" radius="0.005">
+            <origin xyz="0 0 0" rpy="0 ${pi/2} 0"/>
+        </xacro:inertial_cylinder>
     </link>
 
 
@@ -22,6 +40,11 @@
         <child link="camera_link_optical"/>
         <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
     </joint>
+
+    <!-- Preserve optical frame through URDF→SDF conversion -->
+    <gazebo reference="camera_optical_joint">
+        <disableFixedJointLumping>true</disableFixedJointLumping>
+    </gazebo>
 
     <link name="camera_link_optical"></link>
 
