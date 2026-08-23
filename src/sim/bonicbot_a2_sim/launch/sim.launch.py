@@ -99,6 +99,10 @@ def generate_launch_description():
     bridge = Node(
         package='ros_gz_bridge',
         executable='parameter_bridge',
+        # Explicit name: every parameter_bridge defaults to "ros_gz_bridge", so
+        # two of them collide and ros2 warns about duplicate node names on every
+        # command. A standing warning hides a real one.
+        name='gz_bridge_sensors',
         arguments=[
             '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
             '/scan@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan',
@@ -110,6 +114,7 @@ def generate_launch_description():
     image_bridge = Node(
         package='ros_gz_image',
         executable='image_bridge',
+        name='gz_bridge_face_camera',
         arguments=['/face_camera/image_raw'],
         output='screen',
         condition=UnlessCondition(use_real_camera),
@@ -118,6 +123,7 @@ def generate_launch_description():
     camera_info_bridge = Node(
         package='ros_gz_bridge',
         executable='parameter_bridge',
+        name='gz_bridge_face_camera_info',
         arguments=['/face_camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo'],
         output='screen',
         condition=UnlessCondition(use_real_camera),
