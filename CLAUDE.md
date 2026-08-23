@@ -75,16 +75,22 @@ QDD actuators on A2.
 
 | ID | Registry name | ROS joint | A2 limit |
 |---|---|---|---|
-| 0 | `rightGripper` | `right_gripper_finger2_joint` | −45° … 60° |
+| 0 | `rightGripper` | `right_gripper_finger1_joint` | −45° … 60° |
 | 4 | `rightElbow` | `right_elbow_joint` | −50° … 0° |
 | 7 | `rightShoulderPitch` | `right_shoulder_pitch_joint` | −45° … 180° |
 | 8 | `leftShoulderPitch` | `left_shoulder_pitch_joint` | −45° … 180° |
 | 11 | `leftElbow` | `left_elbow_joint` | −50° … 0° |
-| 15 | `leftGripper` | `left_gripper_finger2_joint` | −45° … 60° |
+| 15 | `leftGripper` | `left_gripper_finger1_joint` | −45° … 60° |
 | 16 | `neckYaw` | `neck_yaw_joint` | −90° … 90° |
 
-`*_gripper_finger3_joint` mirrors finger2 mechanically — a URDF `mimic` joint, never
-commanded from ROS on real hardware.
+**Gripper finger numbering matches M1 deliberately:** `finger1` is the driven joint,
+`finger2` mimics it (URDF `mimic`, never commanded), and `finger3` is A2's fixed jaw —
+A2 has three fingers where M1 has two. They were renumbered on 2026-08-23 (A2 previously
+drove `finger2`) so that robot_app and the `bonicos` SDK can share ONE registry→joint
+table. While they disagreed, gripper commands silently no-op'd on A2 and
+`get_servo_angles()` returned a missing key that renders as `0.0deg`, because the joint
+those tools named was A2's *fixed* jaw — not actuated, and absent from `/joint_states`.
+**Keep this aligned with M1.**
 
 > **These registry IDs go on the wire directly.** The firmware indexes servos by the
 > canonical registry, so `CMD_SERVO_MULTI`'s Servo ID byte carries the ID from the table
