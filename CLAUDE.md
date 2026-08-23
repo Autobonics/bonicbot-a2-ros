@@ -3,17 +3,17 @@
 
 ---
 
-> ## ⚠️ Status: code written, NOT yet verified on hardware
+> ## Status — sim verified, hardware untested
 >
-> The restructure described here **has been implemented** — packages, CDC protocol
-> port, Wi-Fi relay, launch files and Docker all exist in this repo. What has NOT
-> happened is any build or hardware run: this was written on a machine without ROS2,
-> so nothing here has been compiled, launched, or driven.
+> **Verified in simulation (2026-08-23).** Workspace builds clean; `sim.launch.py`
+> brings up Gazebo with all seven controllers active; LiDAR, `face_camera`, IMU and
+> EKF all publish; and `robot_app` (`ROBOT_SERIES=A`) adopts the stack and drives
+> mapping → map save → navigation end to end, with AMCL localizing first attempt.
+> That exercises the package restructure, the launch files, and the robot_app
+> integration.
 >
-> Treat every claim below as "implemented, unverified" until Phase 1-5 verification
-> in the restructure plan has actually been run.
->
-> **Known-unverified specifics** (details in the plan's §4):
+> **The ESP32 USB CDC path has never run.** Simulation binds `gz_ros2_control` and
+> never touches it, so none of the following is verified beyond compiling:
 >
 > | Item | Risk if wrong |
 > |---|---|
@@ -21,6 +21,8 @@
 > | Servo inversion table (registry IDs 0/4/11/15/16 negated) — carried from pre-migration firmware, never re-checked | Double inversion: joint mirrors, no error raised |
 > | Encoder tick polarity/scaling after the firmware change | Odometry runs backwards or at wrong scale |
 > | `RESP_BATTERY` (0x52) over CDC — the CDC spec's channel table calls battery BLE-only | `/battery_state` silently never publishes |
+>
+> Also untested on hardware: `start_session_robot.sh`, the udev rules, and Docker.
 >
 > Migration steps: **[bonicbot_a2_restructure_plan.md](./bonicbot_a2_restructure_plan.md)**.
 
@@ -129,7 +131,7 @@ bonicbot-a2-ros/
     │   └── bonicbot_a2_nav/
     │       ├── config/{nav2_params.yaml, ekf.yaml, ekf_imu.yaml, joystick.yaml,
     │       │           mapper_params_online_async.yaml}
-    │       ├── launch/{bringup, slam, navigation, joystick}.launch.py
+    │       ├── launch/{bringup, slam, navigation, mapping, joystick}.launch.py
     │       ├── rviz/
     │       └── scripts/{vision_pipeline.py, object_follower.py}
     │
