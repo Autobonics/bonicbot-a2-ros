@@ -60,8 +60,8 @@ def generate_launch_description():
             default_value=os.environ.get('BONICBOT_MAPS_DIR', '/maps'),
             description='Directory holding saved maps'),
         DeclareLaunchArgument(
-            'map_name', default_value='my_map',
-            description='Map basename within maps_dir (without .yaml)'),
+            'map_name', default_value='bonicbot_a2_map.yaml',
+            description='Map file name inside maps_dir (including .yaml)'),
     ]
 
     # EKF fuses wheel odometry with the ESP IMU's yaw rate and owns the

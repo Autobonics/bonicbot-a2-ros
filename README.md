@@ -52,6 +52,16 @@ colcon build --packages-select bonicbot_a2_sim       # sim
 No hardware needed. Gazebo replaces the ESP32 entirely (`ros2_control.xacro` binds
 `gz_ros2_control` when `sim_mode:=true`), so the CDC protocol is never involved.
 
+Backgrounded, with logs and a preflight that refuses to start on top of a
+previous session (**recommended**):
+
+```bash
+./start_session.sh            # --clean to tear down a previous session first
+./stop_session.sh             # when done
+```
+
+Or in the foreground, two terminals:
+
 ```bash
 # Terminal 1 — Gazebo, controllers, EKF, teleop
 ros2 launch bonicbot_a2_sim sim.launch.py
@@ -59,6 +69,12 @@ ros2 launch bonicbot_a2_sim sim.launch.py
 # Terminal 2 — navigation (or slam.launch.py to map)
 ros2 launch bonicbot_a2_nav navigation.launch.py use_sim_time:=true
 ```
+
+> **Ctrl+C does not reliably stop a `ros2 launch` tree.** Orphaned nodes break
+> the *next* session in ways that look like anything but a stale process — a
+> leftover `robot_state_publisher` can feed `gz_ros2_control` the wrong robot's
+> URDF, so every controller fails to activate with "Not existing" interfaces.
+> Use `./stop_session.sh`; it sweeps and then verifies.
 
 Options: `world:=obstacle_world.sdf`, `use_real_camera:=True` (uses a laptop webcam
 instead of the simulated one — both publish `/camera/image_raw`).
@@ -73,7 +89,14 @@ One-time per robot:
 sudo ./scripts/setup_udev.sh     # creates /dev/esp and /dev/lidar
 ```
 
-Then:
+Then, backgrounded with device preflight and logs (**recommended**):
+
+```bash
+./start_session_robot.sh      # --clean to tear down a previous session first
+./stop_session.sh             # when done
+```
+
+Or in the foreground, two terminals:
 
 ```bash
 # Terminal 1 — hardware: controller_manager + ESP link + lidar + camera
@@ -90,13 +113,13 @@ ros2 launch bonicbot_a2_nav bringup.launch.py use_sim_time:=false slam:=false
 ```bash
 ros2 launch bonicbot_a2_nav bringup.launch.py slam:=true use_nav2:=false
 # drive around with the joystick, then:
-ros2 run nav2_map_server map_saver_cli -f $BONICBOT_MAPS_DIR/my_map
+ros2 run nav2_map_server map_saver_cli -f $BONICBOT_MAPS_DIR/bonicbot_a2_map
 ```
 
 ### Navigating a saved map
 
 ```bash
-ros2 launch bonicbot_a2_nav bringup.launch.py slam:=false map_name:=my_map
+ros2 launch bonicbot_a2_nav bringup.launch.py slam:=false map_name:=bonicbot_a2_map.yaml
 ```
 
 > **`slam:=true` and `slam:=false` are mutually exclusive by design.** `slam_toolbox` and
@@ -106,6 +129,9 @@ ros2 launch bonicbot_a2_nav bringup.launch.py slam:=false map_name:=my_map
 
 Maps live in `$BONICBOT_MAPS_DIR` (default `/maps`, the Docker volume). For bare-metal
 dev, export it: `export BONICBOT_MAPS_DIR=$PWD/maps`.
+
+> `map_name` **includes the `.yaml` extension** — same convention as
+> `bonicbot_m1_nav`, and what robot_app's NavModeManager passes.
 
 ---
 

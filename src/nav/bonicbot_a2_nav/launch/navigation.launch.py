@@ -55,13 +55,16 @@ def generate_launch_description():
             default_value=os.environ.get('BONICBOT_MAPS_DIR', '/maps'),
             description='Directory holding saved maps'),
         DeclareLaunchArgument(
-            'map_name', default_value='my_map',
-            description='Map basename within maps_dir (without .yaml)'),
+            'map_name', default_value='bonicbot_a2_map.yaml',
+            # Extension INCLUDED, matching bonicbot_m1_nav. robot_app's
+            # NavModeManager passes `map_name:=<name>.yaml`, so appending
+            # ".yaml" here would look for "<name>.yaml.yaml".
+            description='Map file name inside maps_dir (including .yaml)'),
     ]
 
     map_yaml = PathJoinSubstitution([
         LaunchConfiguration('maps_dir'),
-        [LaunchConfiguration('map_name'), '.yaml'],
+        LaunchConfiguration('map_name'),
     ])
 
     # ── localization: ONLY when slam:=false ──────────────────────

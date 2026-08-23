@@ -104,6 +104,9 @@ bonicbot-a2-ros/
 ├── docker-compose.yml
 ├── config/udev/99-bonicbot.rules
 ├── maps/
+├── start_session.sh               # sim base stack, backgrounded + preflight
+├── start_session_robot.sh         # real-robot base stack
+├── stop_session.sh                # sweep + verify (Ctrl+C is not enough)
 ├── scripts/setup_udev.sh
 │
 └── src/
