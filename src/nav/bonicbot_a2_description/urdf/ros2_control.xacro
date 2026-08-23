@@ -97,7 +97,7 @@
     <ros2_control name="RealRobot" type="system">
       <hardware>
         <plugin>bonicbot_a2_hardware/EspHardwareInterface</plugin>
-        <param name="serial_port">/dev/ttyAMA1</param>
+        <param name="serial_port">/dev/esp</param>
         <param name="serial_baud">921600</param>
         <param name="encoder_cpr">$(optenv ENCODER_CPR 14040.0)</param>
         <param name="wheel_radius">${wheel_radius}</param>   <!-- 0.12m diameter / 2 -->
