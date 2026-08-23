@@ -53,6 +53,15 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'use_vision', default_value='false',
             description='Start vision_pipeline.py (YOLO / pose / face / gesture / aruco)'),
+        # Forwarded to navigation.launch.py — without these, a saved map could
+        # only be selected by launching navigation.launch.py directly.
+        DeclareLaunchArgument(
+            'maps_dir',
+            default_value=os.environ.get('BONICBOT_MAPS_DIR', '/maps'),
+            description='Directory holding saved maps'),
+        DeclareLaunchArgument(
+            'map_name', default_value='my_map',
+            description='Map basename within maps_dir (without .yaml)'),
     ]
 
     # EKF fuses wheel odometry with the ESP IMU's yaw rate and owns the
@@ -80,6 +89,8 @@ def generate_launch_description():
         launch_arguments={
             'use_sim_time': use_sim_time,
             'slam': slam,   # forwarded so AMCL is skipped when slam_toolbox runs
+            'maps_dir': LaunchConfiguration('maps_dir'),
+            'map_name': LaunchConfiguration('map_name'),
         }.items(),
         condition=IfCondition(LaunchConfiguration('use_nav2')),
     )
