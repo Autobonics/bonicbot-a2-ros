@@ -110,7 +110,7 @@ def generate_launch_description():
     image_bridge = Node(
         package='ros_gz_image',
         executable='image_bridge',
-        arguments=['/camera/image_raw'],
+        arguments=['/face_camera/image_raw'],
         output='screen',
         condition=UnlessCondition(use_real_camera),
     )
@@ -118,13 +118,13 @@ def generate_launch_description():
     camera_info_bridge = Node(
         package='ros_gz_bridge',
         executable='parameter_bridge',
-        arguments=['/camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo'],
+        arguments=['/face_camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo'],
         output='screen',
         condition=UnlessCondition(use_real_camera),
     )
 
     # Real webcam instead of the simulated one — publishes the same
-    # /camera/image_raw, so vision_pipeline.py cannot tell the difference.
+    # /face_camera/image_raw, so vision_pipeline.py cannot tell the difference.
     real_camera = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([os.path.join(hardware_share, 'launch', 'camera.launch.py')]),
         condition=IfCondition(use_real_camera),

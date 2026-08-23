@@ -77,7 +77,7 @@ ros2 launch bonicbot_a2_nav navigation.launch.py use_sim_time:=true
 > Use `./stop_session.sh`; it sweeps and then verifies.
 
 Options: `world:=obstacle_world.sdf`, `use_real_camera:=True` (uses a laptop webcam
-instead of the simulated one — both publish `/camera/image_raw`).
+instead of the simulated one — both publish `/face_camera/image_raw`).
 
 ---
 
@@ -188,6 +188,7 @@ Start it with `ros2 launch bonicbot_a2_nav bringup.launch.py use_vision:=true`.
 | `/cmd_vel` | nav → hardware | twist_mux prio 10 |
 | `/cmd_vel_joy` | joystick → hardware | twist_mux prio 100 (always wins) |
 | `/{left,right}_arm_controller/commands` | app → hardware | `Float64MultiArray` |
+| `/face_camera/image_raw` | camera → nav/app | Head camera. Same name M1 uses, so robot_app addresses both series alike |
 | `/esp/wifi_credentials` | ESP → robot_app | Phone wrote them over BLE |
 | `/esp/wifi_status` | robot_app → ESP | Replies to the phone |
 

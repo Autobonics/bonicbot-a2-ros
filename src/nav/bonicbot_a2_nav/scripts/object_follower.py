@@ -9,7 +9,7 @@ ROS parameters (set via --ros-args -p name:=value):
 
 Topics:
   Sub: /vision/yolo_detections  std_msgs/String     JSON list of detections
-  Sub: /camera/camera_info      sensor_msgs/CameraInfo
+  Sub: /face_camera/camera_info      sensor_msgs/CameraInfo
   Pub: /cmd_vel                 geometry_msgs/Twist
 """
 
@@ -56,7 +56,7 @@ class ObjectFollower(Node):
 
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.create_subscription(String,     '/vision/yolo_detections', self._detection_cb, 10)
-        self.create_subscription(CameraInfo, '/camera/camera_info',     self._camera_info_cb, 10)
+        self.create_subscription(CameraInfo, '/face_camera/camera_info',     self._camera_info_cb, 10)
 
         # 20 Hz control loop — smoother and more responsive
         self.create_timer(0.05, self._control_loop)

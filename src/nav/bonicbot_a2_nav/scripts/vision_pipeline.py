@@ -124,8 +124,8 @@ class VisionPipeline(Node):
         )
 
         # ── Subscriptions ─────────────────────────────────────────────────────
-        self.create_subscription(Image,      '/camera/image_raw',   self.image_callback,       10)
-        self.create_subscription(CameraInfo, '/camera/camera_info', self.camera_info_callback, 10)
+        self.create_subscription(Image,      '/face_camera/image_raw',   self.image_callback,       10)
+        self.create_subscription(CameraInfo, '/face_camera/camera_info', self.camera_info_callback, 10)
         self.create_subscription(String,     '/vision/control',     self.control_callback,     ctrl_qos)
 
         # ── Publishers ────────────────────────────────────────────────────────
@@ -530,7 +530,7 @@ class VisionPipeline(Node):
 
             pose_array = PoseArray()
             pose_array.header.stamp    = self.get_clock().now().to_msg()
-            pose_array.header.frame_id = 'camera_link_optical'
+            pose_array.header.frame_id = 'face_camera_link_optical'
             marker_ids = []
 
             if self.camera_matrix is not None:

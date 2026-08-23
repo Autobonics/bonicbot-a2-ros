@@ -57,7 +57,7 @@ M1-only).
 | Servos | Waveshare serial servos — **ESP-mediated**, 7 fitted (see registry below) |
 | IMU | On ESP board — polled over CDC |
 | LiDAR | RPLIDAR C1M1 — USB, **Pi-direct** (`/dev/lidar`) |
-| Camera | CSI camera module — v4l2, **Pi-direct** (`/dev/video0`) |
+| Camera | CSI camera module in the head — v4l2, **Pi-direct** (`/dev/video0`), published as `face_camera` |
 | Battery | 4400 mAh — SOC/voltage/current from ESP |
 | Phone | Android — Flutter app (BonicOS UI layer), BLE to ESP + WSS to robot_app |
 
@@ -122,7 +122,7 @@ bonicbot-a2-ros/
     │           ├── hardware.launch.py             # controller_manager + spawners,
     │           │                                  # includes the two below
     │           ├── rplidar.launch.py              # /dev/lidar  → /scan
-    │           └── camera.launch.py               # /dev/video0 → /camera/image_raw
+    │           └── camera.launch.py               # /dev/video0 → /face_camera/image_raw
     │
     ├── nav/                                       # no /dev/* access at all
     │   ├── bonicbot_a2_description/               # URDF/xacro + meshes, rsp launch
@@ -235,7 +235,7 @@ repo's concern beyond the topic contract below.
 | `/imu/data` | `sensor_msgs/Imu` | ~10 Hz (polled) | ESP IMU (`CMD_IMU_REQUEST` → `RESP_IMU`) |
 | `/diff_cont/odom` | `nav_msgs/Odometry` | 50 Hz | diff_drive_controller (ESP encoders) |
 | `/joint_states` | `sensor_msgs/JointState` | 50 Hz | joint_state_broadcaster (wheels + 7 servos) |
-| `/camera/image_raw` | `sensor_msgs/Image` | ~6 fps | CSI camera (v4l2) |
+| `/face_camera/image_raw` | `sensor_msgs/Image` | ~6 fps | CSI head camera (v4l2) |
 | `/odometry/filtered` | `nav_msgs/Odometry` | 15 Hz | EKF — owns `odom→base_link` TF |
 
 > A2 publishes IMU on **`/imu/data`**, not M1's `/esp/imu` — matches `robot_app`'s
@@ -306,6 +306,51 @@ because its motion hardware is Jetson-direct:
 > contradicts the BLE spec and reflects the pre-migration A/S firmware. **The BLE spec
 > Rev 2.0 is authoritative** for the unified firmware; framing is identical across both
 > transports, so its payload tables apply to CDC too.
+
+---
+
+## How this repo and robot_app fit together
+
+`bonicOS-robot-app` is **one image shared with M1** — series behaviour comes from
+`ROBOT_CONFIG` in its `app/config.py`, keyed by `ROBOT_SERIES=A`. It owns
+everything outward-facing (WebRTC/app control, maps, cloud, Wi-Fi via nmcli) and
+this repo owns everything robot-facing. They meet only at ROS2 topics and a
+small launch-file contract.
+
+**Division of ownership**
+
+| | this repo | robot_app |
+|---|---|---|
+| `/dev/*`, controllers, sensors | ✅ | never |
+| SLAM / Nav2 / EKF launch files | ✅ provides | ✅ starts + stops them |
+| Which map, which mode, when | never | ✅ |
+| App / cloud / WebRTC | never | ✅ |
+
+**Startup order doesn't matter.** `start_session_robot.sh` brings up the base
+stack (hardware + rsp + EKF); robot_app is a separate persistent service that
+adopts whatever session it finds and re-attaches if one starts later.
+
+**The launch contract robot_app depends on** — identical for A2 and M1, which
+is why one app drives both:
+
+| robot_app calls | this repo provides |
+|---|---|
+| `<nav_pkg> mapping.launch.py use_sim_time:=…` | composite: slam_toolbox + Nav2 core (`slam:=true`) |
+| `<nav_pkg> navigation.launch.py slam:=false maps_dir:=… map_name:=<name>.yaml` | map_server + AMCL + Nav2 core |
+| base: `<nav_pkg> bringup.launch.py` / `<sim_pkg> sim.launch.py` | rsp + EKF / Gazebo |
+
+`<nav_pkg>` is `bonicbot_a2_nav` for series A and `bonicbot_m1_nav` for M —
+resolved from the series table, not hardcoded. Note `map_name` **includes the
+`.yaml` extension**.
+
+Where A2 and M1 genuinely differ, robot_app reads it from the same table:
+
+| | A2 | M1 |
+|---|---|---|
+| odom | `/odom` | `/odometry/filtered` |
+| imu | `/imu/data` | `/esp/imu` |
+| arm commands | `Float64MultiArray` on `/…_controller/commands` | `JointTrajectory` on `/…/joint_trajectory` |
+| cameras | `face` only | `face` + `docking` (+ depth) |
 
 ---
 
