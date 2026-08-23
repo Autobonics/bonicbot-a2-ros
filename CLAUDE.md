@@ -354,6 +354,19 @@ Where A2 and M1 genuinely differ, robot_app reads it from the same table:
 | arm commands | `Float64MultiArray` on `/…_controller/commands` | `JointTrajectory` on `/…/joint_trajectory` |
 | cameras | `face` only | `face` + `docking` (+ depth) |
 
+> **`Float64MultiArray` has a sharp edge robot_app has to work around.** It
+> carries no joint names — array position IS joint identity — so it must be
+> exactly `controllers.yaml`'s joint count for that group, every publish, or
+> `ForwardCommandController` rejects it (repeatedly, once per control cycle:
+> an `"update call ... returned an error"` flood, and the group never moves
+> again until a correctly-sized command arrives). robot_app's
+> `ROBOT_CONFIG["A"]["controller_joints"]` mirrors this repo's
+> `controllers.yaml` group/joint order exactly so it can fill in any joint a
+> caller didn't specify (from the last `/joint_states` sample) before
+> publishing. **If a joint is ever added, removed, or reordered in
+> `bonicbot_a2_hardware/config/controllers.yaml`, that table in robot_app's
+> `app/config.py` must be updated to match, or arm/head commands break.**
+
 ---
 
 ## Navigation
@@ -523,6 +536,16 @@ ros2 launch bonicbot_a2_nav bringup.launch.py
 
 ## Open Items
 
+- **Consider migrating arm/head/gripper controllers from
+  `JointGroupPositionController` (`Float64MultiArray`) to
+  `JointTrajectoryController` (`JointTrajectory`)**, matching M1. Named joints
+  make partial commands safe by construction — no array-position/joint-count
+  coupling, no "update call ... returned an error" flood class of bug (see the
+  robot_app integration section above), and timed/interpolated motion instead
+  of instant setpoints. Not urgent — the current fill-from-`/joint_states`
+  workaround in robot_app works — but the sturdier pattern if A2's arms need
+  smoother motion later. Would touch `controllers.yaml`, `ros2_control.xacro`,
+  and robot_app's `publish_joint_command`/`ROBOT_CONFIG["A"]` together.
 - **rosbridge removal** — `rosbridge_websocket` (:9090) stays behind an opt-in launch arg
   until `robot_app`'s WSS is confirmed to cover the same surface (map, pose, nav goals,
   joint states) for the Flutter app. Deleting it before that parity check would break the
