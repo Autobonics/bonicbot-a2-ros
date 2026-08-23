@@ -597,12 +597,12 @@ void EspHardwareInterface::initializeServoMapping()
   // different, A2-only numbering (1/3/6/7/9/12/13, sent as id-1); that scheme
   // and its conversion are gone. Note only right_gripper keeps the same wire
   // value across the change, so a partial port silently drives wrong joints.
-  joint_to_servo_id_["right_gripper_finger2_joint"] = 0;   // rightGripper
+  joint_to_servo_id_["right_gripper_finger1_joint"] = 0;   // rightGripper
   joint_to_servo_id_["right_elbow_joint"]           = 4;   // rightElbow
   joint_to_servo_id_["right_shoulder_pitch_joint"]  = 7;   // rightShoulderPitch
   joint_to_servo_id_["left_shoulder_pitch_joint"]   = 8;   // leftShoulderPitch
   joint_to_servo_id_["left_elbow_joint"]            = 11;  // leftElbow
-  joint_to_servo_id_["left_gripper_finger2_joint"]  = 15;  // leftGripper
+  joint_to_servo_id_["left_gripper_finger1_joint"]  = 15;  // leftGripper
   joint_to_servo_id_["neck_yaw_joint"]              = 16;  // neckYaw
 }
 
