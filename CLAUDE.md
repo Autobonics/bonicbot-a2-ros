@@ -1,0 +1,502 @@
+# bonicbot-a2-ros
+## BonicBot A2 Series ROS2 Stack | Autobonics Pvt Ltd | Confidential
+
+---
+
+> ## ⚠️ Status: code written, NOT yet verified on hardware
+>
+> The restructure described here **has been implemented** — packages, CDC protocol
+> port, Wi-Fi relay, launch files and Docker all exist in this repo. What has NOT
+> happened is any build or hardware run: this was written on a machine without ROS2,
+> so nothing here has been compiled, launched, or driven.
+>
+> Treat every claim below as "implemented, unverified" until Phase 1-5 verification
+> in the restructure plan has actually been run.
+>
+> **Known-unverified specifics** (details in the plan's §4):
+>
+> | Item | Risk if wrong |
+> |---|---|
+> | Servo angle convention — signed degrees sent; BLE spec's 0x0A table says "0-180" while the registry's A2 limits are signed | Negative angles clamp to zero: joint parks at one end, looks like a dead servo |
+> | Servo inversion table (registry IDs 0/4/11/15/16 negated) — carried from pre-migration firmware, never re-checked | Double inversion: joint mirrors, no error raised |
+> | Encoder tick polarity/scaling after the firmware change | Odometry runs backwards or at wrong scale |
+> | `RESP_BATTERY` (0x52) over CDC — the CDC spec's channel table calls battery BLE-only | `/battery_state` silently never publishes |
+>
+> Migration steps: **[bonicbot_a2_restructure_plan.md](./bonicbot_a2_restructure_plan.md)**.
+
+---
+
+## Overview
+
+ROS2 stack for the BonicBot A2 Pro. Single colcon workspace, packages grouped into
+`hardware` (owns `/dev/*`) and `nav` (no hardware access) — the same split
+[bonicOS-m1-ros](../bonicOS-m1-ros/bonicos_m1_ros_overview.md) uses, so the two series
+stay structurally readable side by side.
+
+**Where A2 fundamentally differs from M1:** on M1 the Jetson drives all motion hardware
+directly (ODrive over CAN, QDD actuators over native CAN, Feetech servos over USB), and
+the ESP32 is a thin relay handling only IMU/Wi-Fi/ping. **On A2 the ESP32 *is* the motion
+controller** — wheels (PWM + encoders), all 7 servos, and the IMU sit behind it, reached
+over one USB CDC link. There is no CAN bus on A2. So A2's `ros2_control` hardware
+interface is an *active CDC master*, not a relay, and A2 needs no per-bus driver packages
+(`odrive_ros2_control`, `robstride_hardware_interface`, `feetech_ros2_driver` are all
+M1-only).
+
+---
+
+## Robot Hardware — A2 Pro
+
+| Component | Detail |
+|---|---|
+| Processor | Raspberry Pi 4 — 8GB RAM |
+| OS | Ubuntu 22.04 (64-bit) |
+| ROS2 | Humble |
+| ESP MCU | Custom Autobonics controller board — ESP32-S3, USB CDC-ACM |
+| Drive | H-bridge PWM, closed-loop in ESP firmware — **ESP-mediated** |
+| Encoders | Wheel encoders → ESP (`encoder_cpr` 14040, wheel radius 0.06 m, separation 0.2895 m) |
+| Servos | Waveshare serial servos — **ESP-mediated**, 7 fitted (see registry below) |
+| IMU | On ESP board — polled over CDC |
+| LiDAR | RPLIDAR C1M1 — USB, **Pi-direct** (`/dev/lidar`) |
+| Camera | CSI camera module — v4l2, **Pi-direct** (`/dev/video0`) |
+| Battery | 4400 mAh — SOC/voltage/current from ESP |
+| Phone | Android — Flutter app (BonicOS UI layer), BLE to ESP + WSS to robot_app |
+
+> **A2 Lite** has no RPi4, no LiDAR, no ROS2 — phone + ESP only, manual drive. This repo
+> is A2 **Pro** only.
+
+### Actuator registry — A2 fitment
+
+A2 fits **7 of the 18** canonical actuator IDs from
+[bonicbot_actuator_naming.md](../bonicOS-flutter/docs/bonicbot_actuator_naming.md)
+(active A-series BLE IDs `0, 4, 7, 8, 11, 15, 16`). All are standard serial servos — no
+QDD actuators on A2.
+
+| ID | Registry name | ROS joint | A2 limit |
+|---|---|---|---|
+| 0 | `rightGripper` | `right_gripper_finger2_joint` | −45° … 60° |
+| 4 | `rightElbow` | `right_elbow_joint` | −50° … 0° |
+| 7 | `rightShoulderPitch` | `right_shoulder_pitch_joint` | −45° … 180° |
+| 8 | `leftShoulderPitch` | `left_shoulder_pitch_joint` | −45° … 180° |
+| 11 | `leftElbow` | `left_elbow_joint` | −50° … 0° |
+| 15 | `leftGripper` | `left_gripper_finger2_joint` | −45° … 60° |
+| 16 | `neckYaw` | `neck_yaw_joint` | −90° … 90° |
+
+`*_gripper_finger3_joint` mirrors finger2 mechanically — a URDF `mimic` joint, never
+commanded from ROS on real hardware.
+
+> **These registry IDs go on the wire directly.** The firmware indexes servos by the
+> canonical registry, so `CMD_SERVO_MULTI`'s Servo ID byte carries the ID from the table
+> above — no translation layer. This **replaces** the old ROS-side scheme (`servo_id`
+> 1/3/6/7/9/12/13 → `id − 1`), which matched the pre-migration firmware only.
+
+---
+
+## Repository Structure
+
+The repo root **is** the colcon workspace. Motion hardware runs through a **ros2_control
+hardware-interface plugin**, not a standalone driver node.
+
+```
+bonicbot-a2-ros/
+├── CLAUDE.md
+├── bonicbot_a2_restructure_plan.md
+├── Dockerfile.ros                 # one image — hardware + nav (RPi4 constraint)
+├── docker-compose.yml
+├── config/udev/99-bonicbot.rules
+├── maps/
+├── scripts/setup_udev.sh
+│
+└── src/
+    ├── hardware/                                  # owns EVERY /dev/* device
+    │   └── bonicbot_a2_hardware/                  # ament_cmake
+    │       ├── hardware/esp_hardware_interface.cpp    # ros2_control SystemInterface
+    │       ├── hardware/include/bonicbot_a2_hardware/
+    │       │   ├── esp_hardware_interface.hpp
+    │       │   └── cdc_protocol.hpp               # AA 55 framing, opcode constants
+    │       ├── bonicbot_a2_hardware.xml           # pluginlib descriptor
+    │       ├── config/{controllers.yaml, twist_mux.yaml}
+    │       └── launch/
+    │           ├── hardware.launch.py             # controller_manager + spawners,
+    │           │                                  # includes the two below
+    │           ├── rplidar.launch.py              # /dev/lidar  → /scan
+    │           └── camera.launch.py               # /dev/video0 → /camera/image_raw
+    │
+    ├── nav/                                       # no /dev/* access at all
+    │   ├── bonicbot_a2_description/               # URDF/xacro + meshes, rsp launch
+    │   └── bonicbot_a2_nav/
+    │       ├── config/{nav2_params.yaml, ekf.yaml, ekf_imu.yaml, joystick.yaml,
+    │       │           mapper_params_online_async.yaml}
+    │       ├── launch/{bringup, slam, navigation, joystick}.launch.py
+    │       ├── rviz/
+    │       └── scripts/{vision_pipeline.py, object_follower.py}
+    │
+    └── sim/                                       # dev only — never on the robot
+        └── bonicbot_a2_sim/
+            ├── config/{gazebo_params.yaml, nav2_params_sim.yaml}
+            ├── launch/sim.launch.py
+            └── worlds/*.sdf
+```
+
+**Package naming:** it's `bonicbot_a2_hardware`, not `..._esp_bridge`, because it owns the
+LiDAR and camera too — both are `/dev/*` devices, and those have nothing to do with the
+ESP. M1 can name its package `esp_bridge` because there it genuinely only handles the ESP
+(lidar/cameras live in `bonicbot_m1_hardware_bringup`). The ESP-specific code is the
+`esp_hardware_interface.*` files inside.
+
+> **App-layer logic is not in this repo** — orchestration (nav goals, mapping lifecycle,
+> map management, sessions, cloud) belongs to `bonicOS-robot-app`, which is shared with
+> M1 and already has a `ROBOT_SERIES=A` config. `robot_manager.py` and `robot_agent.py`
+> therefore **leave the build**: they now sit in `reference/` (with `agent_config.yaml`),
+> out of every package, ready to move to robot_app as inputs for its A-series
+> implementation — exactly as M1 did with its own `robot_manager.py`. They are kept
+> rather than deleted because robot_app has not absorbed their functionality yet.
+>
+> `vision_pipeline.py` and `object_follower.py` **stay** — they consume camera topics and
+> publish `/vision/*` and `/cmd_vel`, which is ROS-layer perception, not orchestration.
+> M1 keeps the same two scripts in its nav package for the same reason.
+
+### Why one ESP package, not M1's two
+
+M1 splits `bonicbot_m1_hardware_bringup` (C++ ros2_control) from
+`bonicbot_m1_esp_bridge` (Python IMU/Wi-Fi relay) because it has several distinct physical
+buses needing separate driver packages, with the ESP handling only leftovers. A2 has
+exactly one bus — the ESP does everything — so one package named for what it actually is:
+**the bridge to the ESP**.
+
+### Why the Wi-Fi relay is C++, inside the plugin
+
+M1's Wi-Fi relay is a standalone Python node because there it is the *only* process
+touching the CDC port. On A2 the ros2_control plugin already reads/writes that same port
+continuously at 50 Hz for motors/servos/IMU. **Two processes sharing one CDC byte stream
+would interleave and split frames**, so the relay cannot be a separate node. Its topics
+are served from the internal `rclcpp::Node` the plugin already creates and spins for IMU
+publishing (`SystemInterface` has no node handle of its own, so it makes one).
+
+**One process owns `/dev/esp`. No exceptions.**
+
+---
+
+## Container Architecture
+
+Two containers — **not** M1's three. The RPi4 can't justify separating hardware from nav,
+so both package groups build into a single `bonicbot_ros` image. The `src/hardware`
+vs `src/nav` source split is still enforced (see Key Design Rules); it just isn't a
+container boundary.
+
+```
+RPi4 — A2 Pro
+
+┌──────────────────────────────────────────────┐
+│ bonicbot_ros            ros:humble-ros-base  │  privileged, restart: always
+│                                              │
+│  bonicbot_a2_hardware        — owns /dev/*   │
+│   ├── controller_manager + controllers.yaml  │
+│   │    ├── esp_hardware_interface (/dev/esp) │  ← wheels, 7 servos, IMU over USB CDC
+│   │    ├── diff_cont → /diff_cont/odom       │
+│   │    ├── joint_broad → /joint_states       │
+│   │    └── arm/head/gripper position ctrls   │
+│   ├── twist_mux  (/cmd_vel, /cmd_vel_joy)    │
+│   ├── rplidar_ros  (/dev/lidar)  → /scan     │
+│   └── v4l2_camera  (/dev/video0) → /camera/* │
+│                                              │
+│  bonicbot_a2_description → robot_state_pub   │
+│  bonicbot_a2_nav             — no /dev/*     │
+│   ├── slam_toolbox | nav2_amcl (never both)  │
+│   ├── Nav2, EKF (robot_localization)         │
+│   └── vision_pipeline / object_follower      │
+└──────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────┐
+│ robot_app               autobonics/robot-app │  restart: always
+│ ROBOT_SERIES=A          ← owns orchestration │
+│  WSS (phone + BonicAI) · Firebase · LiveKit  │
+│  nav goals · mapping · map mgmt · sessions   │
+│  rclpy ROS2 bridge · nmcli · update manager  │
+└──────────────────────────────────────────────┘
+```
+
+`robot_app` is **shared with M1** — same image, same core, series-dispatched by
+`ROBOT_SERIES`. Its A-series config already exists (`app/config.py`). M-series adds
+features on top (depth camera, on-device LLM); the core is common. That repo is not this
+repo's concern beyond the topic contract below.
+
+---
+
+## ROS2 Topic Map
+
+### hardware → nav (sensor data)
+
+| Topic | Type | Rate | Source |
+|---|---|---|---|
+| `/scan` | `sensor_msgs/LaserScan` | 10 Hz | RPLIDAR C1M1 (Pi-direct) |
+| `/imu/data` | `sensor_msgs/Imu` | ~10 Hz (polled) | ESP IMU (`CMD_IMU_REQUEST` → `RESP_IMU`) |
+| `/diff_cont/odom` | `nav_msgs/Odometry` | 50 Hz | diff_drive_controller (ESP encoders) |
+| `/joint_states` | `sensor_msgs/JointState` | 50 Hz | joint_state_broadcaster (wheels + 7 servos) |
+| `/camera/image_raw` | `sensor_msgs/Image` | ~6 fps | CSI camera (v4l2) |
+| `/odometry/filtered` | `nav_msgs/Odometry` | 15 Hz | EKF — owns `odom→base_link` TF |
+
+> A2 publishes IMU on **`/imu/data`**, not M1's `/esp/imu` — matches `robot_app`'s
+> existing A-series topic config and `ekf.yaml`'s `imu0`.
+
+### nav → hardware (commands)
+
+| Topic | Type | Destination |
+|---|---|---|
+| `/cmd_vel` | `geometry_msgs/Twist` | twist_mux (prio 10) → `/diff_cont/cmd_vel_unstamped` |
+| `/cmd_vel_joy` | `geometry_msgs/Twist` | twist_mux (prio 100 — joystick always wins) |
+| `/{left,right}_arm_controller/commands` | `std_msgs/Float64MultiArray` | shoulder_pitch + elbow |
+| `/head_controller/commands` | `std_msgs/Float64MultiArray` | neck_yaw |
+| `/{left,right}_gripper_controller/commands` | `std_msgs/Float64MultiArray` | gripper finger2 |
+
+> A2 uses `position_controllers/JointGroupPositionController` (plain
+> `Float64MultiArray` on `/…/commands`). M1 uses `JointTrajectoryController` for arms
+> (`JointTrajectory` with timing). Do not copy M1's arm-command code onto A2 unchanged.
+
+### Wi-Fi relay (`/esp/*`) — new, target only
+
+| Topic | Type | Direction |
+|---|---|---|
+| `/esp/wifi_credentials` | `std_msgs/String` | `esp_hardware_interface` → robot_app (runs `nmcli`) |
+| `/esp/wifi_status` | `std_msgs/String` | robot_app → `esp_hardware_interface` → `CMD_WIFI_STATUS` reply |
+
+---
+
+## ESP ⇄ RPi4 USB CDC Protocol
+
+Full spec: **[bonicbot_usb_cdc_protocol_spec.md](../bonicOS-m1-ros/bonicbot_usb_cdc_protocol_spec.md)**.
+CDC-ACM, ~1 MB/s, framing `0xAA 0x55 | type(1B) | length(2B LE) | payload` — **identical
+to BLE framing, no checksum byte**. `cdc_protocol.hpp` implements the parser/packer.
+
+**A2 uses the full motion subset** — the opposite of M1, which uses only ping/IMU/Wi-Fi
+because its motion hardware is Jetson-direct:
+
+| Frame | Hex | Direction | Used for |
+|---|---|---|---|
+| `CMD_PING` | 0x01 | Pi → ESP | Link liveness |
+| `CMD_MOTOR_MOVE` | 0x02 | Pi → ESP | Wheel velocities (m/s) + accel |
+| `CMD_ENCODER_REQUEST` | 0x21 | Pi → ESP | Poll encoder ticks |
+| `CMD_RESET_ENCODERS` | 0x23 | Pi → ESP | Zero encoders (on activate) |
+| `CMD_STOP` | 0x26 | Pi → ESP | Emergency stop (on deactivate) |
+| `CMD_SERVO_MULTI` | 0x0A | Pi → ESP | **Servo positions** — `N × [id, angle°, speed, accel]`, registry IDs |
+| `CMD_SERVO_CONTROL` | 0x27 | Pi → ESP | Single-servo **action** — `[id, action]`, 2 B: 0 move / 1 set-mid / 2 torque-off / 3 torque-on |
+| `CMD_IMU_REQUEST` | 0x29 | Pi → ESP | Poll one IMU sample |
+| `CMD_SERVO_FEEDBACK_REQUEST` | 0x2A | Pi → ESP | Servo feedback — once / continuous / stop, + interval |
+| `CMD_WIFI_CONFIG` | 0x0B | ESP → Pi | SSID+password relayed from phone BLE |
+| `CMD_WIFI_STATUS` | 0x0C | both | ESP requests; Pi replies status/SSID/RSSI/IP |
+| `RESP_ACK` / `RESP_NACK` | 0x50 / 0x51 | ESP → Pi | Command acknowledgement |
+| `RESP_BATTERY` | 0x52 | ESP → Pi | 31 B: voltage, current, SOC%, active-servo count + online IDs |
+| `RESP_ENCODERS` | 0x60 | ESP → Pi | Two int32 tick counts |
+| `RESP_SERVO_FEEDBACK` | 0x61 | ESP → Pi | `N × [id, angle°]` — position only |
+| `RESP_IMU` | 0x63 | ESP → Pi | 6 floats: accel m/s², gyro deg/s |
+
+> **Servo positioning is `CMD_SERVO_MULTI` (0x0A), not `CMD_SERVO_CONTROL` (0x27).**
+> Per [bonicbot_ble_protocol_spec.md](../bonicOS-flutter/docs/bonicbot_ble_protocol_spec.md)
+> (Rev 2.0), 0x27 is a **2-byte** payload — `[Servo ID][Action]` — so it cannot carry an
+> angle at all. It is the *single-servo action* command (move-to-target / set-middle /
+> torque-off / torque-on). 0x0A is the positional command: `Count` + `N × [Servo ID (0-17),
+> float angle°, uint16 speed, uint8 accel]`.
+>
+> A2 uses **both**: 0x0A every control cycle for positions, and 0x27 for torque-on at
+> activate and torque-off at deactivate.
+>
+> ⚠️ The CDC spec's §4 describes 0x27 with an `1 + N×8` positional payload — that
+> contradicts the BLE spec and reflects the pre-migration A/S firmware. **The BLE spec
+> Rev 2.0 is authoritative** for the unified firmware; framing is identical across both
+> transports, so its payload tables apply to CDC too.
+
+---
+
+## Navigation
+
+```
+LiDAR C1M1 → slam_toolbox → /map        (mapping)
+           → nav2_amcl                   (localization on a saved map)
+EKF        → wheel odom + ESP IMU → /odometry/filtered
+Nav2       → NavigateToPose → /cmd_vel
+CSI camera → vision_pipeline.py → YOLO / pose / face / gesture / aruco
+```
+
+**`map→odom` is owned by slam_toolbox OR AMCL, never both.** `bringup.launch.py`'s
+`slam` arg (default `false`) selects which:
+
+- `slam:=true` — mapping. `slam_toolbox` runs live and owns `map→odom`;
+  `navigation.launch.py` skips AMCL/`map_server`.
+- `slam:=false` — production. `nav2_amcl` + `map_server` run against a saved map and own
+  `map→odom`; no SLAM.
+
+A2 must also toggle this **at runtime** — the operator starts/stops mapping from the phone
+app without relaunching. That orchestration belongs to **`robot_app`**, which starts and
+stops these launch files and is responsible for upholding the never-both invariant by
+tearing one down before bringing the other up. This repo's job is to expose the two modes
+as cleanly separable launch files; it does not manage their lifecycle.
+
+EKF (`ekf.yaml`) fuses `/diff_cont/odom` with the ESP IMU's yaw rate. `diff_cont` has
+`enable_odom_tf: false` and inflated yaw covariance so the EKF trusts the gyro over
+wheel-derived yaw — deliberate slip rejection. `ekf_imu.yaml` is a more aggressive
+variant (IMU as *sole* rotation source); it is **not currently launched**.
+
+---
+
+## udev Rules
+
+```bash
+# Find IDs: udevadm info /dev/ttyACM0 | grep -E "ID_VENDOR_ID|ID_MODEL_ID|ID_SERIAL"
+
+# /etc/udev/rules.d/99-bonicbot.rules
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", SYMLINK+="esp",    GROUP="dialout", MODE="0660"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="XXXX", ATTRS{idProduct}=="XXXX", SYMLINK+="lidar",  GROUP="dialout", MODE="0660"
+
+sudo udevadm control --reload-rules && sudo udevadm trigger
+```
+
+A2 has **one** ESP32-S3 board, so a plain vendor/product match suffices — no
+serial-number disambiguation like M1 (three ESP boards sharing `303a:1001`).
+
+---
+
+## Production — Docker Compose
+
+```yaml
+services:
+  bonicbot_ros:
+    build: { context: ., dockerfile: Dockerfile.ros }
+    restart: always
+    privileged: true
+    network_mode: host
+    devices:
+      - /dev/esp
+      - /dev/lidar
+      - /dev/video0
+    volumes:
+      - /home/pi/maps:/maps
+    environment:
+      - ROS_LOCALHOST_ONLY=1
+      - ROS_DOMAIN_ID=0
+      - BONICBOT_MAPS_DIR=/maps
+
+  robot_app:
+    image: autobonics/robot-app:latest
+    restart: always
+    network_mode: host
+    mem_limit: 384m
+    environment:
+      - ROBOT_SERIES=A
+      - ROS_DISTRO=humble
+      - ROBOT_ID=${ROBOT_ID}
+      - ROS_LOCALHOST_ONLY=1
+    secrets: [firebase_credentials, livekit_api_key]
+    volumes:
+      - /home/pi/maps:/maps
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      bonicbot_ros: { condition: service_started }
+
+secrets:
+  firebase_credentials: { file: /home/pi/secrets/firebase.json }
+  livekit_api_key:      { file: /home/pi/secrets/livekit.json }
+```
+
+---
+
+## Simulation
+
+**The ESP does not exist in simulation, and the CDC protocol is never used there.**
+`ros2_control.xacro` branches on `sim_mode`: sim binds `gz_ros2_control/GazeboSimSystem`,
+the real robot binds `bonicbot_a2/EspHardwareInterface`. Gazebo supplies the joints,
+wheels, IMU, LiDAR and camera. Everything above `ros2_control` — the same
+`controllers.yaml`, twist_mux, EKF, SLAM, Nav2 — is byte-identical between the two.
+
+So `sim.launch.py` is the **sim-side replacement for `hardware.launch.py`**, and nav runs
+on top of either one unchanged.
+
+| | Real robot | Simulation |
+|---|---|---|
+| `ros2_control` plugin | `bonicbot_a2/EspHardwareInterface` | `gz_ros2_control/GazeboSimSystem` |
+| Wheels / servos / IMU | ESP32-S3 over USB CDC | Gazebo physics + `ros_gz_bridge` |
+| LiDAR, camera | `/dev/lidar`, `/dev/video0` | Gazebo sensors + bridge |
+| `controllers.yaml` | same file | same file |
+| EKF, SLAM, Nav2, twist_mux | same | same (`use_sim_time:=true`) |
+
+### Running
+
+```bash
+# ── Simulation ──────────────────────────────────────────────
+ros2 launch bonicbot_a2_sim sim.launch.py                      # world:=… headless:=…
+ros2 launch bonicbot_a2_nav navigation.launch.py use_sim_time:=true
+#   (or slam.launch.py use_sim_time:=true to map)
+
+# ── Real robot ──────────────────────────────────────────────
+ros2 launch bonicbot_a2_hardware hardware.launch.py
+ros2 launch bonicbot_a2_nav bringup.launch.py use_sim_time:=false slam:=false
+```
+
+`sim.launch.py` brings up: rsp (`sim_mode:=true`) → Gazebo → spawn entity → `ros_gz`
+bridges (clock, scan, imu, camera) → the same seven controller spawners → twist_mux →
+joystick → EKF. Same composition M1's `bonicbot_m1_sim` uses.
+
+> `sim.launch.py` already carries a `use_real_camera` arg — `False` bridges Gazebo's
+> camera, `True` runs the real `v4l2_camera` node instead (a dev laptop's webcam). Both
+> publish `/camera/image_raw`, so `vision_pipeline.py` doesn't care which is running.
+
+---
+
+## Development Flow (Bare Metal)
+
+```bash
+rosdep install --from-paths src --ignore-src -r -y
+colcon build
+source install/setup.bash
+
+# Terminal 1 — hardware (controller_manager, ESP link, lidar, camera)
+ros2 launch bonicbot_a2_hardware hardware.launch.py
+
+# Terminal 2 — navigation
+ros2 launch bonicbot_a2_nav bringup.launch.py
+```
+
+---
+
+## Key Design Rules
+
+1. `src/hardware/` packages never import from `src/nav/`, and vice versa — communication
+   is via ROS2 topics only. (Enforced even though both ship in one container.)
+2. `bonicbot_a2_hardware` is the sole owner of every `/dev/*` device.
+3. **Exactly one process opens `/dev/esp`.** The CDC stream cannot be shared.
+4. `ROS_LOCALHOST_ONLY=1` always — ROS2 topics never visible on school/lab WiFi.
+5. Maps mounted as a volume — survive container rebuilds.
+6. `restart: always` — self-healing during student demos.
+7. Phone is always the primary UI; ESP BLE is ground truth for IP/status/Wi-Fi config.
+8. `robot_app` owns no hardware — only ROS2 topics, WSS, Firebase.
+9. Humble uses `Twist`, not `TwistStamped` (`diff_cont.use_stamped_vel: false`).
+
+---
+
+## Open Items
+
+- **rosbridge removal** — `rosbridge_websocket` (:9090) stays behind an opt-in launch arg
+  until `robot_app`'s WSS is confirmed to cover the same surface (map, pose, nav goals,
+  joint states) for the Flutter app. Deleting it before that parity check would break the
+  phone app.
+- **`robot_app` A-series servo gate** — `bonicOS-robot-app`'s `ROBOT_SERIES=A` config has
+  `controllers: {}` and `moveit: False`, so `servo_command` is feature-gated **off** for
+  A series. A2 does expose arm/head/gripper controllers, so that config needs updating
+  there (note A2's `Float64MultiArray` controllers differ from M1's trajectory
+  controllers). Cross-repo follow-up — not fixable in this repo.
+- **`ekf_imu.yaml`** — an alternate EKF config (IMU as sole yaw source), present but never
+  launched. Either wire it behind a launch arg or delete it.
+- **`/battery_state`** — `RESP_BATTERY` (0x52) carries voltage, current and SOC%, so the
+  data exists; nothing publishes the topic yet. Add a `sensor_msgs/BatteryState` publisher
+  in `esp_hardware_interface.cpp`. The frame's trailing `active servo count + online IDs`
+  is also a free health check — a fitted servo dropping off the bus becomes detectable.
+  Confirm the firmware emits 0x52 over CDC (the CDC spec's channel table lists battery as
+  BLE-only, predating the unified firmware).
+- **Orchestration gap during migration** — `robot_manager.py` and `robot_agent.py` leave
+  this repo (see below), but `robot_app` does not yet implement every service they
+  provided: the precise-move queue, patrol/waypoint following, the named-location store,
+  and per-detector vision toggles (`/vision/control`) have no robot_app equivalent found.
+  Those need building in `robot_app` before A2 has feature parity with the current stack.
+
+---
+
+*bonicbot-a2-ros | Autobonics Pvt Ltd*
+*Confidential and proprietary. All rights reserved.*
