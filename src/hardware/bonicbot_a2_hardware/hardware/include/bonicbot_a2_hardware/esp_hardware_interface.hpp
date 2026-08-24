@@ -98,9 +98,10 @@ private:
   // ── motion ───────────────────────────────────────────────────
   bool sendMotorMove(double left_mps, double right_mps, double accel_mps2);
   bool sendServoPositions();
-  bool sendServoAction(uint8_t servo_id, cdc_protocol::ServoAction action);
   bool setAllServoTorque(bool enabled);
-  bool requestServoFeedbackStream(cdc_protocol::FeedbackMode mode, uint16_t interval_ms);
+  /// Requests one feedback poll for all mapped servos. No persistent stream —
+  /// must be called on whatever interval the caller wants updates.
+  bool requestServoFeedback();
   void processServoFeedback(const uint8_t * payload, uint16_t length);
   void processBattery(const uint8_t * payload, uint16_t length);
   void processImu(const uint8_t * payload, uint16_t length);
@@ -164,6 +165,13 @@ private:
   bool imu_data_ready_ = false;
   int imu_decimator_ = 0;
   std::string imu_frame_id_ = "imu_link";
+
+  // ── servo feedback polling ────────────────────────────────────
+  // CMD_SERVO_FEEDBACK_REQUEST has no streaming mode: read() re-requests on
+  // this decimation, derived from servo_feedback_interval_ms_ at the
+  // controller_manager's fixed 50 Hz (20 ms) update rate.
+  int servo_feedback_decimator_ = 0;
+  int servo_feedback_decimation_ = 1;
 
   // ── internal node: publishers, Wi-Fi relay, spin thread ──────
   rclcpp::Node::SharedPtr node_;

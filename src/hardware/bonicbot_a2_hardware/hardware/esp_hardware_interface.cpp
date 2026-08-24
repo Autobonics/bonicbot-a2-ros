@@ -68,6 +68,11 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_init(
   servo_accel_   = static_cast<int>(paramOr(p, "servo_accel", 50));
   servo_position_threshold_   = paramOr(p, "servo_position_threshold", 0.01);
   servo_feedback_interval_ms_ = static_cast<int>(paramOr(p, "servo_feedback_interval_ms", 100));
+  // CMD_SERVO_FEEDBACK_REQUEST has no streaming mode (see cdc_protocol.hpp), so
+  // read() re-requests it every Nth cycle at the controller_manager's fixed
+  // 50 Hz (20 ms) rate to approximate the configured interval.
+  servo_feedback_decimation_ = std::max(
+    1, static_cast<int>(std::lround(servo_feedback_interval_ms_ / 20.0)));
 
   auto frame_it = p.find("imu_frame_id");
   if (frame_it != p.end()) {
@@ -342,15 +347,10 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_activate(
   encoder_right_ = 0;
   encoder_data_ready_ = false;
 
-  setAllServoTorque(true);
-
-  // Continuous servo feedback: the ESP streams RESP_SERVO_FEEDBACK on its own
-  // from here on. Replaces the old per-cycle request/response poll, removing a
-  // blocking round-trip from the control loop.
-  requestServoFeedbackStream(
-    cdc_protocol::FeedbackMode::CONTINUOUS,
-    static_cast<uint16_t>(
-      std::max<int>(servo_feedback_interval_ms_, cdc_protocol::FEEDBACK_MIN_INTERVAL_MS)));
+  // No explicit torque-on: CMD_SERVO_MULTI (0x0A) auto-engages torque on the
+  // first position command, so there's nothing to do here. Servo feedback
+  // polling starts on its own decimation inside read() — no setup call needed.
+  servo_feedback_decimator_ = 0;
 
   RCLCPP_INFO(rclcpp::get_logger(kLogger), "Activated");
   return hardware_interface::CallbackReturn::SUCCESS;
@@ -359,7 +359,7 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_activate(
 hardware_interface::CallbackReturn EspHardwareInterface::on_deactivate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  requestServoFeedbackStream(cdc_protocol::FeedbackMode::STOP, 0);
+  // No stream to stop — servo feedback is per-request, not persistent.
   sendPacket(cdc_protocol::CMD_STOP, nullptr, 0);
   // Release torque so the arms don't stay powered (and warm) while idle — the
   // old implementation left them energised after deactivation.
@@ -416,6 +416,16 @@ hardware_interface::return_type EspHardwareInterface::read(
     imu_decimator_ = 0;
     if (!sendPacket(cdc_protocol::CMD_IMU_REQUEST, nullptr, 0)) {
       markDisconnected("IMU request write failed");
+      return hardware_interface::return_type::ERROR;
+    }
+  }
+
+  // Servo feedback has no streaming mode (see cdc_protocol.hpp) — re-request
+  // on the configured decimation, same pattern as the IMU above.
+  if (++servo_feedback_decimator_ >= servo_feedback_decimation_) {
+    servo_feedback_decimator_ = 0;
+    if (!requestServoFeedback()) {
+      markDisconnected("servo feedback request write failed");
       return hardware_interface::return_type::ERROR;
     }
   }
@@ -542,38 +552,31 @@ bool EspHardwareInterface::sendServoPositions()
   return sendPacket(cdc_protocol::CMD_SERVO_MULTI, payload, idx);
 }
 
-bool EspHardwareInterface::sendServoAction(uint8_t servo_id, cdc_protocol::ServoAction action)
-{
-  // CMD_SERVO_CONTROL (0x27) — exactly 2 bytes.
-  const uint8_t payload[2] = {servo_id, static_cast<uint8_t>(action)};
-  return sendPacket(cdc_protocol::CMD_SERVO_CONTROL, payload, sizeof(payload));
-}
-
 bool EspHardwareInterface::setAllServoTorque(bool enabled)
 {
+  // CMD_SERVO_CONTROL (0x27): N x [id, action], no count prefix — one packet
+  // for every servo instead of one packet per servo.
   const auto action =
     enabled ? cdc_protocol::ServoAction::TORQUE_ON : cdc_protocol::ServoAction::TORQUE_OFF;
-  bool ok = true;
+  uint8_t payload[18 * 2];
+  uint16_t idx = 0;
   for (const auto & [joint_name, servo_id] : joint_to_servo_id_) {
     (void)joint_name;
-    ok &= sendServoAction(servo_id, action);
+    payload[idx++] = servo_id;
+    payload[idx++] = static_cast<uint8_t>(action);
   }
+  const bool ok = sendPacket(cdc_protocol::CMD_SERVO_CONTROL, payload, idx);
   RCLCPP_INFO(
     rclcpp::get_logger(kLogger), "Servo torque %s", enabled ? "enabled" : "released");
   return ok;
 }
 
-bool EspHardwareInterface::requestServoFeedbackStream(
-  cdc_protocol::FeedbackMode mode, uint16_t interval_ms)
+bool EspHardwareInterface::requestServoFeedback()
 {
-  // CMD_SERVO_FEEDBACK_REQUEST (0x2A):
-  //   [Mode][uint16 interval_ms LE][Count][IDs...]
-  uint8_t payload[4 + 18];
+  // CMD_SERVO_FEEDBACK_REQUEST (0x2A): [Count][IDs...]. One request triggers
+  // one async poll + one RESP_SERVO_FEEDBACK reply — no mode/interval fields.
+  uint8_t payload[1 + 18];
   uint16_t idx = 0;
-  payload[idx++] = static_cast<uint8_t>(mode);
-  payload[idx++] = static_cast<uint8_t>(interval_ms & 0xFF);
-  payload[idx++] = static_cast<uint8_t>((interval_ms >> 8) & 0xFF);
-
   const uint8_t count = static_cast<uint8_t>(joint_to_servo_id_.size());
   payload[idx++] = count;
   for (const auto & [joint_name, servo_id] : joint_to_servo_id_) {
@@ -1135,18 +1138,14 @@ void EspHardwareInterface::attemptReconnect()
 
   RCLCPP_INFO(rclcpp::get_logger(kLogger), "Reconnected; re-running handshake");
 
-  // The ESP rebooted or was replugged, so its encoder origin and servo torque
-  // state are unknown — redo what on_activate() established.
+  // The ESP rebooted or was replugged, so its encoder origin is unknown —
+  // redo what on_activate() established. Servo torque needs no re-enable
+  // (CMD_SERVO_MULTI auto-engages it) and feedback polling resumes on its own
+  // next decimated read() cycle — neither needs a setup call here.
   clearBuffer();
   sendPacket(cdc_protocol::CMD_RESET_ENCODERS, nullptr, 0);
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
   pumpSerial();
-
-  setAllServoTorque(true);
-  requestServoFeedbackStream(
-    cdc_protocol::FeedbackMode::CONTINUOUS,
-    static_cast<uint16_t>(
-      std::max<int>(servo_feedback_interval_ms_, cdc_protocol::FEEDBACK_MIN_INTERVAL_MS)));
 
   // Force a fresh command on the next write() — the cached "last sent" values
   // are meaningless to a freshly booted ESP.

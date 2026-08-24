@@ -39,7 +39,7 @@ constexpr uint8_t CMD_RESET_ENCODERS        = 0x23;
 constexpr uint8_t CMD_CALIBRATE             = 0x24;
 constexpr uint8_t CMD_DIAGNOSTICS           = 0x25;
 constexpr uint8_t CMD_STOP                  = 0x26;  // emergency stop both motors
-constexpr uint8_t CMD_SERVO_CONTROL         = 0x27;  // single-servo ACTION, 2B payload
+constexpr uint8_t CMD_SERVO_CONTROL         = 0x27;  // N x servo ACTION, N*2B payload
 constexpr uint8_t CMD_IMU_REQUEST           = 0x29;
 constexpr uint8_t CMD_SERVO_FEEDBACK_REQUEST = 0x2A;
 
@@ -65,26 +65,23 @@ constexpr uint8_t  SERVO_MULTI_ENTRY_SIZE = 8;  // id + float angle + u16 speed 
 constexpr uint8_t  SERVO_FEEDBACK_ENTRY_SIZE = 5;  // id + float angle
 
 // ── CMD_SERVO_CONTROL (0x27) action codes ──────────────────────────────
-// Payload is exactly 2 bytes: [Servo ID][Action]. This command CANNOT carry an
-// angle — positional moves go out on CMD_SERVO_MULTI (0x0A).
+// Payload is N x [Servo ID][Action], N*2 bytes, no count prefix — count is
+// derived from payload length / 2 (a single-servo packet is just 2 bytes).
+// This command CANNOT carry an angle or perform motion — positional moves go
+// out on CMD_SERVO_MULTI (0x0A) exclusively, which also auto-engages torque,
+// so TORQUE_ON is rarely needed before a move; TORQUE_OFF is still the only
+// way to release a servo.
 enum class ServoAction : uint8_t
 {
-  MOVE_TO_TARGET = 0,
-  SET_MIDDLE     = 1,   // calibrate zero offset
-  TORQUE_OFF     = 2,
-  TORQUE_ON      = 3,
+  SET_MIDDLE = 1,   // calibrate zero offset
+  TORQUE_OFF = 2,
+  TORQUE_ON  = 3,
 };
 
-// ── CMD_SERVO_FEEDBACK_REQUEST (0x2A) modes ────────────────────────────
-// Payload: [Mode][uint16 interval_ms LE][Count][IDs...]. Continuous mode makes
-// the ESP stream RESP_SERVO_FEEDBACK on its own, replacing per-cycle polling.
-enum class FeedbackMode : uint8_t
-{
-  ONCE       = 0,
-  CONTINUOUS = 1,
-  STOP       = 2,
-};
-constexpr uint16_t FEEDBACK_MIN_INTERVAL_MS = 50;
+// ── CMD_SERVO_FEEDBACK_REQUEST (0x2A) ───────────────────────────────────
+// Payload: [Count][IDs...]. Each request triggers one async poll of the
+// servo bus and one RESP_SERVO_FEEDBACK reply — there is no persistent
+// streaming mode; callers must re-request on the interval they want.
 
 // ── Receive state machine ──────────────────────────────────────────────
 // One state shorter than the old protocol's — there is no checksum to wait for.
