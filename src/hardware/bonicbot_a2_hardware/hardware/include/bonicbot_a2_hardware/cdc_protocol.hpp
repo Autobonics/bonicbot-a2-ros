@@ -33,6 +33,7 @@ constexpr uint8_t  HEADER_SIZE = 5;          // magic1 + magic2 + type + len(2B)
 // ── Commands (host -> ESP) ─────────────────────────────────────────────
 constexpr uint8_t CMD_PING                  = 0x01;  // liveness; replies RESP_ACK
 constexpr uint8_t CMD_MOTOR_MOVE            = 0x02;  // wheel velocities (m/s)
+constexpr uint8_t CMD_MATRIX_ACTION         = 0x05;  // face LED matrix — variable payload, see spec §4
 constexpr uint8_t CMD_SERVO_MULTI           = 0x0A;  // servo POSITIONS (registry IDs)
 constexpr uint8_t CMD_ENCODER_REQUEST       = 0x21;
 constexpr uint8_t CMD_BATTERY_REQUEST       = 0x22;

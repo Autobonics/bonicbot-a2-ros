@@ -253,6 +253,21 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_configure(
     wifi_status_payload_.assign(cdc_protocol::WIFI_STATUS_PAYLOAD_SIZE, 0);
   }
 
+  face_matrix_subscription_ = node_->create_subscription<std_msgs::msg::UInt8MultiArray>(
+    "/face/matrix_action", 10,
+    [this](const std_msgs::msg::UInt8MultiArray::SharedPtr msg) {
+      // Raw pass-through — byte 0 is the action code, rest is that action's
+      // own payload (spec §4). No interpretation here: expression/animation
+      // choices belong to whatever publishes this (robot_app / bonicOS), not
+      // this repo. Just buffer it for write() to send on the control thread.
+      if (msg->data.empty()) {
+        return;
+      }
+      std::lock_guard<std::mutex> lock(matrix_action_mutex_);
+      pending_matrix_action_ = msg->data;
+      matrix_action_pending_ = true;
+    });
+
   executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
   executor_->add_node(node_);
   spin_thread_ = std::thread([this]() {executor_->spin();});
@@ -260,7 +275,7 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_configure(
   RCLCPP_INFO(
     rclcpp::get_logger(kLogger),
     "Publishing /imu/data, /battery_state, /esp/wifi_credentials; "
-    "subscribed /esp/wifi_status");
+    "subscribed /esp/wifi_status, /face/matrix_action");
 
   return hardware_interface::CallbackReturn::SUCCESS;
 }
@@ -279,6 +294,7 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_cleanup(
   battery_publisher_.reset();
   wifi_credentials_publisher_.reset();
   wifi_status_subscription_.reset();
+  face_matrix_subscription_.reset();
   node_.reset();
 
   closeSerialPort();
@@ -475,6 +491,20 @@ hardware_interface::return_type EspHardwareInterface::write(
   if (!sendServoPositions()) {
     markDisconnected("servo command write failed");
     return hardware_interface::return_type::OK;
+  }
+
+  // Face LED matrix: fire-and-forget, only when /face/matrix_action actually
+  // publishes something — no per-cycle traffic like the sensors/servos above.
+  if (matrix_action_pending_) {
+    std::vector<uint8_t> action;
+    {
+      std::lock_guard<std::mutex> lock(matrix_action_mutex_);
+      action = std::move(pending_matrix_action_);
+      matrix_action_pending_ = false;
+    }
+    if (!sendPacket(cdc_protocol::CMD_MATRIX_ACTION, action.data(), action.size())) {
+      RCLCPP_WARN(rclcpp::get_logger(kLogger), "Face matrix command write failed");
+    }
   }
 
   return hardware_interface::return_type::OK;

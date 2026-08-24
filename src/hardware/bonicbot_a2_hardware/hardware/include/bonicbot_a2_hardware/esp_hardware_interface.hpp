@@ -15,6 +15,7 @@
 #ifndef BONICBOT_A2_HARDWARE__ESP_HARDWARE_INTERFACE_HPP_
 #define BONICBOT_A2_HARDWARE__ESP_HARDWARE_INTERFACE_HPP_
 
+#include <atomic>
 #include <chrono>
 #include <map>
 #include <memory>
@@ -34,6 +35,7 @@
 #include "sensor_msgs/msg/battery_state.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "std_msgs/msg/u_int8_multi_array.hpp"
 
 #include "bonicbot_a2_hardware/cdc_protocol.hpp"
 
@@ -184,6 +186,7 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::BatteryState>::SharedPtr battery_publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr wifi_credentials_publisher_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr wifi_status_subscription_;
+  rclcpp::Subscription<std_msgs::msg::UInt8MultiArray>::SharedPtr face_matrix_subscription_;
   rclcpp::executors::SingleThreadedExecutor::SharedPtr executor_;
   std::thread spin_thread_;
 
@@ -192,6 +195,16 @@ private:
   /// control thread when the ESP asks — hence the mutex.
   std::vector<uint8_t> wifi_status_payload_;
   std::mutex wifi_status_mutex_;
+
+  /// Raw CMD_MATRIX_ACTION payload from /face/matrix_action — byte 0 is the
+  /// action code, the rest is that action's own layout (spec §4). This is a
+  /// dumb pipe: this repo doesn't interpret expressions, just forwards bytes.
+  /// Written by the subscription callback on the spin thread, sent from
+  /// write() on the control thread — same split as the Wi-Fi payload above,
+  /// because only the control thread may touch the serial fd.
+  std::vector<uint8_t> pending_matrix_action_;
+  std::atomic<bool> matrix_action_pending_{false};
+  std::mutex matrix_action_mutex_;
 };
 
 }  // namespace bonicbot_a2_hardware
