@@ -378,8 +378,13 @@ hardware_interface::return_type EspHardwareInterface::read(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & period)
 {
   if (!connected_) {
+    // Returning ERROR here would trigger ros2_control's on_error() transition
+    // and deactivate this component permanently — controller_manager would
+    // stop calling read()/write() altogether, and no amount of replugging
+    // would ever be seen again. Returning OK keeps this cycle firing so
+    // attemptReconnect()'s own backoff can actually do its job.
     attemptReconnect();
-    return hardware_interface::return_type::ERROR;
+    return hardware_interface::return_type::OK;
   }
 
   // Consume everything the ESP has sent since the last cycle: encoder replies,
@@ -407,7 +412,7 @@ hardware_interface::return_type EspHardwareInterface::read(
 
   if (!sendPacket(cdc_protocol::CMD_ENCODER_REQUEST, nullptr, 0)) {
     markDisconnected("encoder request write failed");
-    return hardware_interface::return_type::ERROR;
+    return hardware_interface::return_type::OK;
   }
 
   // IMU is decimated: the control loop runs at 50 Hz, the EKF only needs ~25 Hz
@@ -416,7 +421,7 @@ hardware_interface::return_type EspHardwareInterface::read(
     imu_decimator_ = 0;
     if (!sendPacket(cdc_protocol::CMD_IMU_REQUEST, nullptr, 0)) {
       markDisconnected("IMU request write failed");
-      return hardware_interface::return_type::ERROR;
+      return hardware_interface::return_type::OK;
     }
   }
 
@@ -426,7 +431,7 @@ hardware_interface::return_type EspHardwareInterface::read(
     servo_feedback_decimator_ = 0;
     if (!requestServoFeedback()) {
       markDisconnected("servo feedback request write failed");
-      return hardware_interface::return_type::ERROR;
+      return hardware_interface::return_type::OK;
     }
   }
 
@@ -436,8 +441,11 @@ hardware_interface::return_type EspHardwareInterface::read(
 hardware_interface::return_type EspHardwareInterface::write(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
+  // See read() above: never return ERROR for a recoverable disconnect — that
+  // would deactivate this component permanently instead of letting the
+  // reconnect backoff run.
   if (!connected_) {
-    return hardware_interface::return_type::ERROR;
+    return hardware_interface::return_type::OK;
   }
 
   // Wheels: hw_commands_ is rad/s (velocity interface); CMD_MOTOR_MOVE wants m/s.
@@ -451,12 +459,12 @@ hardware_interface::return_type EspHardwareInterface::write(
 
   if (!sendMotorMove(left_mps, right_mps, motor_accel_)) {
     markDisconnected("motor command write failed");
-    return hardware_interface::return_type::ERROR;
+    return hardware_interface::return_type::OK;
   }
 
   if (!sendServoPositions()) {
     markDisconnected("servo command write failed");
-    return hardware_interface::return_type::ERROR;
+    return hardware_interface::return_type::OK;
   }
 
   return hardware_interface::return_type::OK;
