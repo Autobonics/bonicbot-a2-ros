@@ -166,6 +166,11 @@ private:
   int imu_decimator_ = 0;
   std::string imu_frame_id_ = "imu_link";
 
+  // ── battery ────────────────────────────────────────────────────
+  // Voltage/SOC change slowly — 1 Hz is plenty at the 50 Hz control rate.
+  int battery_decimator_ = 0;
+  static constexpr int kBatteryDecimation = 50;
+
   // ── servo feedback polling ────────────────────────────────────
   // CMD_SERVO_FEEDBACK_REQUEST has no streaming mode: read() re-requests on
   // this decimation, derived from servo_feedback_interval_ms_ at the

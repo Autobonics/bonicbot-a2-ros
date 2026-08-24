@@ -35,6 +35,7 @@ constexpr uint8_t CMD_PING                  = 0x01;  // liveness; replies RESP_A
 constexpr uint8_t CMD_MOTOR_MOVE            = 0x02;  // wheel velocities (m/s)
 constexpr uint8_t CMD_SERVO_MULTI           = 0x0A;  // servo POSITIONS (registry IDs)
 constexpr uint8_t CMD_ENCODER_REQUEST       = 0x21;
+constexpr uint8_t CMD_BATTERY_REQUEST       = 0x22;
 constexpr uint8_t CMD_RESET_ENCODERS        = 0x23;
 constexpr uint8_t CMD_CALIBRATE             = 0x24;
 constexpr uint8_t CMD_DIAGNOSTICS           = 0x25;
@@ -51,7 +52,7 @@ constexpr uint8_t CMD_WIFI_STATUS = 0x0C;
 // ── Responses (ESP -> host) ────────────────────────────────────────────
 constexpr uint8_t RESP_ACK             = 0x50;
 constexpr uint8_t RESP_NACK            = 0x51;
-constexpr uint8_t RESP_BATTERY         = 0x52;  // 31B: V, A, SOC%, servo census
+constexpr uint8_t RESP_BATTERY         = 0x52;  // 12B: voltage, current, SOC% floats
 constexpr uint8_t RESP_ENCODERS        = 0x60;  // 8B: two int32 tick counts
 constexpr uint8_t RESP_SERVO_FEEDBACK  = 0x61;  // 1 + N*5: count + [id, float deg]
 constexpr uint8_t RESP_IMU             = 0x63;  // 24B: 6 floats
@@ -59,7 +60,7 @@ constexpr uint8_t RESP_IMU             = 0x63;  // 24B: 6 floats
 // ── Payload sizes ──────────────────────────────────────────────────────
 constexpr uint16_t IMU_PAYLOAD_SIZE      = 24;  // ax ay az (m/s^2), gx gy gz (deg/s)
 constexpr uint16_t ENCODER_PAYLOAD_SIZE  = 8;   // int32 left, int32 right
-constexpr uint16_t BATTERY_PAYLOAD_SIZE  = 31;  // 3 floats + count + uint8[18]
+constexpr uint16_t BATTERY_PAYLOAD_SIZE  = 12;  // voltage, current, SOC% — 3 floats, no servo census on CDC
 constexpr uint16_t WIFI_STATUS_PAYLOAD_SIZE = 50;  // u8 + char[32] + u8 + char[16]
 constexpr uint8_t  SERVO_MULTI_ENTRY_SIZE = 8;  // id + float angle + u16 speed + u8 accel
 constexpr uint8_t  SERVO_FEEDBACK_ENTRY_SIZE = 5;  // id + float angle

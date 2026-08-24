@@ -435,6 +435,16 @@ hardware_interface::return_type EspHardwareInterface::read(
     }
   }
 
+  // Battery telemetry: request/response like everything else on CDC, decimated
+  // hard since voltage/SOC only need ~1 Hz.
+  if (++battery_decimator_ >= kBatteryDecimation) {
+    battery_decimator_ = 0;
+    if (!sendPacket(cdc_protocol::CMD_BATTERY_REQUEST, nullptr, 0)) {
+      markDisconnected("battery request write failed");
+      return hardware_interface::return_type::OK;
+    }
+  }
+
   return hardware_interface::return_type::OK;
 }
 
@@ -953,7 +963,6 @@ void EspHardwareInterface::processBattery(const uint8_t * payload, uint16_t leng
   std::memcpy(&voltage, &payload[0], sizeof(float));
   std::memcpy(&current, &payload[4], sizeof(float));
   std::memcpy(&soc_percent, &payload[8], sizeof(float));
-  const uint8_t active_servos = payload[12];
 
   sensor_msgs::msg::BatteryState msg;
   msg.header.stamp = node_->now();
@@ -967,15 +976,9 @@ void EspHardwareInterface::processBattery(const uint8_t * payload, uint16_t leng
   msg.present = true;
   battery_publisher_->publish(msg);
 
-  // Bytes 13..30 list the servo IDs currently answering on the bus. A fitted
-  // servo dropping off shows up here, where it would otherwise just silently
-  // stop moving.
-  const size_t expected = joint_to_servo_id_.size();
-  if (active_servos < expected) {
-    RCLCPP_WARN_THROTTLE(
-      rclcpp::get_logger(kLogger), *node_->get_clock(), 10000,
-      "Only %u of %zu servos online", active_servos, expected);
-  }
+  // No servo census on CDC's RESP_BATTERY (12B: voltage/current/SOC% only) —
+  // that trailing active-count + online-IDs field only exists on the BLE
+  // RESP_BATTERY payload, not this one.
 }
 
 // ════════════════════════════════════════════════════════════════════
