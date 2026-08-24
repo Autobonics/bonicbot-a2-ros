@@ -614,21 +614,20 @@ bool EspHardwareInterface::isServoInverted(uint8_t servo_id)
   // Mirrored joints, carried over from the pre-migration mapping (old IDs
   // 1/3/7/9/13 = grippers, elbows, neck yaw) translated to registry IDs.
   //
-  // UNVERIFIED against the new firmware. These negations were tuned by hand
-  // against the old firmware; if the unified firmware now applies inversion
-  // internally this double-inverts, which looks like a mirrored joint rather
-  // than throwing an error. Check all seven joints on the bench before trusting
-  // this table. Same caveat applies to the sign convention itself: the BLE spec
-  // documents CMD_SERVO_MULTI's angle as 0-180 while the registry's A2 limits
-  // are signed, and signed degrees are what is sent here.
+  // 2026-08-24 bench test: elbows (4, 11) removed from this list. Their range
+  // is one-sided (-50..0 deg), so a double-inversion (this table negating a
+  // sign the unified firmware already flips internally) pushes every command
+  // outside the valid range instead of just mirroring it — which is exactly
+  // what made them look dead (URDF/ros2_control limits already ruled out;
+  // see 4963baf) while bidirectional joints (shoulders, neck) still looked
+  // fine despite the same possible double-inversion. Gripper/neck kept here
+  // since they tested correctly; re-verify if that changes.
   switch (servo_id) {
     case 0:    // rightGripper
-    case 4:    // rightElbow
-    case 11:   // leftElbow
     case 15:   // leftGripper
     case 16:   // neckYaw
       return true;
-    default:   // 7 / 8 — shoulder pitches
+    default:   // 4 / 7 / 8 / 11 — elbows, shoulder pitches
       return false;
   }
 }
