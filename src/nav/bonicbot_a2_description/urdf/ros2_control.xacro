@@ -140,15 +140,15 @@
       <!-- Elbows -->
       <joint name="left_elbow_joint">
         <command_interface name="position"/>
-        <param name="min">0</param>  <!-- -45 degrees -->
-        <param name="max">0.873</param>  <!-- 180 degrees -->
+        <param name="min">-0.873</param>  <!-- -50 degrees -->
+        <param name="max">0</param>  <!-- 0 degrees -->
         <state_interface name="position"/>
         <state_interface name="velocity"/>
       </joint>
       <joint name="right_elbow_joint">
         <command_interface name="position"/>
-        <param name="min">0</param>  <!-- -45 degrees -->
-        <param name="max">0.873</param>  <!-- 180 degrees -->
+        <param name="min">-0.873</param>  <!-- -50 degrees -->
+        <param name="max">0</param>  <!-- 0 degrees -->
         <state_interface name="position"/>
         <state_interface name="velocity"/>
       </joint>
@@ -156,8 +156,8 @@
       <!-- Neck -->
       <joint name="neck_yaw_joint">
         <command_interface name="position"/>
-        <param name="min">-1.571</param>  <!-- -45 degrees -->
-        <param name="max">1.571</param>  <!-- 180 degrees -->
+        <param name="min">-1.571</param>  <!-- -90 degrees -->
+        <param name="max">1.571</param>  <!-- 90 degrees -->
         <state_interface name="position"/>
         <state_interface name="velocity"/>
       </joint>
