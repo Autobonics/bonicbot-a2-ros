@@ -280,8 +280,7 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_configure(
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
-hardware_interface::CallbackReturn EspHardwareInterface::on_cleanup(
-  const rclcpp_lifecycle::State & /*previous_state*/)
+void EspHardwareInterface::stopInternalNode()
 {
   if (executor_) {
     executor_->cancel();
@@ -296,7 +295,26 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_cleanup(
   wifi_status_subscription_.reset();
   face_matrix_subscription_.reset();
   node_.reset();
+}
 
+hardware_interface::CallbackReturn EspHardwareInterface::on_cleanup(
+  const rclcpp_lifecycle::State & /*previous_state*/)
+{
+  stopInternalNode();
+  closeSerialPort();
+  return hardware_interface::CallbackReturn::SUCCESS;
+}
+
+hardware_interface::CallbackReturn EspHardwareInterface::on_shutdown(
+  const rclcpp_lifecycle::State & /*previous_state*/)
+{
+  // Process termination (SIGINT/SIGTERM, e.g. stop_session.sh) drives the
+  // lifecycle through deactivate() -> shutdown() — cleanup() is NOT part of
+  // that path. Without this override, spin_thread_ was still joinable when
+  // the destructor ran, and destroying a joinable std::thread is an
+  // unconditional std::terminate()/abort (SIGABRT) regardless of connection
+  // state — confirmed via a real crash during bench testing (2026-08-24).
+  stopInternalNode();
   closeSerialPort();
   return hardware_interface::CallbackReturn::SUCCESS;
 }

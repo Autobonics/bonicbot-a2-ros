@@ -62,6 +62,9 @@ public:
   hardware_interface::CallbackReturn on_cleanup(
     const rclcpp_lifecycle::State & previous_state) override;
 
+  hardware_interface::CallbackReturn on_shutdown(
+    const rclcpp_lifecycle::State & previous_state) override;
+
   std::vector<hardware_interface::StateInterface> export_state_interfaces() override;
 
   std::vector<hardware_interface::CommandInterface> export_command_interfaces() override;
@@ -79,6 +82,14 @@ public:
     const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
 private:
+  /// Cancels the executor and joins spin_thread_, then resets the internal
+  /// node and its publishers/subscriptions. Shared by on_cleanup() and
+  /// on_shutdown() — process termination (SIGINT/SIGTERM) goes through
+  /// deactivate() -> shutdown(), NEVER cleanup(), so this can't only live in
+  /// on_cleanup() or a plain kill destroys a still-joinable std::thread,
+  /// which is an unconditional std::terminate()/abort, no exception involved.
+  void stopInternalNode();
+
   // ── serial port ──────────────────────────────────────────────
   bool openSerialPort();
   void closeSerialPort();
