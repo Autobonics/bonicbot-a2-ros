@@ -30,6 +30,21 @@ def generate_launch_description():
             'serial_port': LaunchConfiguration('serial_port'),
             'serial_baudrate': 460800,
             'frame_id': 'laser_frame',
+            # angle_compensate resamples each scan into evenly-spaced angular
+            # bins, interpolating every point. It is the dominant CPU cost in
+            # rplidar_ros and it shows: on 2026-08-25 bench testing this node
+            # was the single largest consumer on the RPi4 during navigation,
+            # at 44% of a core, ahead of every Nav2 node.
+            #
+            # It stays True because evenly-spaced scans are what slam_toolbox's
+            # scan matcher and the costmap ray-tracing assume; turning it off
+            # degrades map quality and localisation, which is a bad trade while
+            # the Pi still has headroom (53% idle with the full stack, no IDE
+            # session and no robot_app).
+            #
+            # THIS IS THE LEVER TO PULL IF CPU BECOMES THE BINDING CONSTRAINT
+            # again — setting it False reclaims most of that 44%. Measure map
+            # quality before and after; do not flip it blind.
             'angle_compensate': True,
             'scan_mode': 'Standard',
             'use_sim_time': LaunchConfiguration('use_sim_time'),

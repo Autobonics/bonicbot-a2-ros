@@ -563,6 +563,19 @@ ros2 launch bonicbot_a2_nav bringup.launch.py
   controllers). Cross-repo follow-up — not fixable in this repo.
 - **`ekf_imu.yaml`** — an alternate EKF config (IMU as sole yaw source), present but never
   launched. Either wire it behind a launch arg or delete it.
+- **RPi4 CPU budget — `angle_compensate` is the reserve lever.** Profiled on real hardware
+  2026-08-25 during a live SLAM + Nav2 session. With the IDE remote server closed and
+  `robot_app` stopped, the full stack leaves **53% idle**; `rplidar_composition` is the
+  largest single consumer at **44% of a core**, ahead of every Nav2 node, and essentially
+  all of that is `angle_compensate: True` in `rplidar.launch.py` (it interpolates every
+  scan point into evenly-spaced angular bins). Setting it `False` reclaims most of that,
+  at the cost of scan geometry that slam_toolbox's matcher and costmap ray-tracing both
+  assume — so it is held in reserve, not spent. Two things that were *not* the problem
+  and had already been trimmed by then: `ekf.yaml` (15 Hz → 10 Hz) and slam_toolbox
+  (`throttle_scans` 1 → 2, `transform_publish_period` 50 Hz → 20 Hz), both now ~5-11%.
+  **The real CPU thieves were off-stack:** the Antigravity IDE remote server peaked at
+  **90%** of a core, and `robot_app` idles around 17%. Never benchmark this robot with an
+  editor session attached — SSH from a plain terminal.
 - **`nav2_params_sim.yaml` — unused, slated for deletion.** No launch file references it:
   `navigation.launch.py` defaults `params_file` to `bonicbot_a2_nav/config/nav2_params.yaml`,
   `bringup.launch.py` never forwards `params_file`, and neither does robot_app's

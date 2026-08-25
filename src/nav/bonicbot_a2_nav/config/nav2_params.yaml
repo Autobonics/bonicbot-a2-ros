@@ -198,12 +198,17 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.05
-      robot_radius: 0.25
+      robot_radius: 0.22
       plugins: ["voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        inflation_radius: 0.55
+        # 0.55 was larger than the global costmap's 0.30 — backwards. The LOCAL
+        # costmap is what DWB scores trajectories against, so a wide halo here is
+        # what stops the controller committing to a gap; the GLOBAL one wants the
+        # wider value so planned paths prefer corridor centres. 0.30 = robot_radius
+        # + 8 cm, which leaves a 0.76 m doorway passable for a 0.44 m robot.
+        inflation_radius: 0.30
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
         enabled: True
@@ -261,7 +266,10 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        inflation_radius: 0.3
+        # Raised from 0.30: the global planner should bias toward the middle of
+        # free space. Still under a 0.76 m doorway's 0.38 m half-width, so
+        # doorways stay plannable rather than becoming uniformly high-cost.
+        inflation_radius: 0.35
       always_send_full_costmap: True
 
 map_server:
