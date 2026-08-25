@@ -101,7 +101,8 @@
         <param name="serial_baud">921600</param>
         <param name="encoder_cpr">$(optenv ENCODER_CPR 14040.0)</param>
         <param name="wheel_radius">${wheel_radius}</param>   <!-- 0.12m diameter / 2 -->
-        <param name="max_velocity">10.47</param>   <!-- 100 RPM = 10.47 rad/s -->
+        <param name="max_velocity">4.5</param>   <!-- ~43 RPM — lowered 2026-08-25, 10.47 (100 RPM) was too fast on real hardware -->
+        <param name="motor_accel">0.5</param>   <!-- m/s^2 — lowered 2026-08-25 from the 1.5 default, also too aggressive on real hardware -->
       </hardware>
       <joint name="left_wheel_joint">
         <command_interface name="velocity">
