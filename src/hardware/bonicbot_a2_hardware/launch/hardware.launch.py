@@ -22,6 +22,7 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -46,8 +47,13 @@ def generate_launch_description():
     # ── robot description ────────────────────────────────────────
     # sim_mode:=false selects the ESP hardware interface in ros2_control.xacro.
     xacro_file = os.path.join(description_share, 'urdf', 'robot.urdf.xacro')
-    robot_description = Command(
-        ['xacro ', xacro_file, ' use_ros2_control:=true sim_mode:=false'])
+    # See rsp.launch.py for why ParameterValue(value_type=str) is required here:
+    # without it launch_ros YAML-parses the URDF string, and any ": " in the
+    # generated XML (comments included) aborts the launch with a message that
+    # blames robot_description instead of the comment.
+    robot_description = ParameterValue(
+        Command(['xacro ', xacro_file, ' use_ros2_control:=true sim_mode:=false']),
+        value_type=str)
 
     rsp = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(

@@ -6,6 +6,7 @@ from launch import LaunchDescription
 from launch.substitutions import LaunchConfiguration, Command
 from launch.actions import DeclareLaunchArgument
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch.conditions import UnlessCondition
 
 
@@ -17,8 +18,20 @@ def generate_launch_description():
 
     pkg_path = os.path.join(get_package_share_directory('bonicbot_a2_description'))
     xacro_file = os.path.join(pkg_path,'urdf','robot.urdf.xacro')
-    robot_description_config = Command(['xacro ', xacro_file, ' use_ros2_control:=', use_ros2_control, ' sim_mode:=', use_sim_time])
-    
+    # ParameterValue(..., value_type=str) is NOT optional. Without it launch_ros
+    # YAML-parses the generated URDF to infer the parameter's type, and a plain
+    # ": " anywhere in that 47 KB string — including inside an XML comment, which
+    # xacro copies through verbatim — makes YAML read a mapping key and abort.
+    # That surfaces as "Unable to parse the value of parameter robot_description
+    # as yaml", which points at the parameter rather than at the comment that
+    # actually broke it, while xacro itself still exits 0 with valid XML.
+    # Bit us on 2026-08-25 with a dated note in body.xacro's elbow joint.
+    robot_description_config = ParameterValue(
+        Command(['xacro ', xacro_file,
+                 ' use_ros2_control:=', use_ros2_control,
+                 ' sim_mode:=', use_sim_time]),
+        value_type=str)
+
     params = {'robot_description': robot_description_config, 'use_sim_time': use_sim_time}
     
     node_robot_state_publisher = Node(
