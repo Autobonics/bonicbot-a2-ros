@@ -680,22 +680,27 @@ bool EspHardwareInterface::isServoInverted(uint8_t servo_id)
   // Mirrored joints, carried over from the pre-migration mapping (old IDs
   // 1/3/7/9/13 = grippers, elbows, neck yaw) translated to registry IDs.
   //
-  // 2026-08-24 bench test: elbows (4, 11) removed from this list. Their range
-  // is one-sided (-50..0 deg), so a double-inversion (this table negating a
-  // sign the unified firmware already flips internally) pushes every command
-  // outside the valid range instead of just mirroring it — which is exactly
-  // what made them look dead (URDF/ros2_control limits already ruled out;
-  // see 4963baf) while bidirectional joints (shoulders, neck) still looked
-  // fine despite the same possible double-inversion. Gripper/neck kept here
-  // since they tested correctly; re-verify if that changes.
-  switch (servo_id) {
-    case 0:    // rightGripper
-    case 15:   // leftGripper
-    case 16:   // neckYaw
-      return true;
-    default:   // 4 / 7 / 8 / 11 — elbows, shoulder pitches
-      return false;
-  }
+  // 2026-08-24: elbows (4, 11) removed after bench testing showed a
+  // double-inversion (this table negating a sign the unified firmware
+  // already flips internally, per the CDC spec's own note that
+  // processServoMulti() handles mirrored-joint inversion natively) pushed
+  // their one-sided range (-50..0 deg) out of bounds entirely.
+  //
+  // 2026-08-25: gripper (0, 15) and neck (16) removed too, for the same
+  // reason — confirmed reversed vs simulation during robot_app teleop
+  // testing (sim has no inversion table at all, so it shows the "true"
+  // direction; real hardware was applying a redundant second flip on top of
+  // the firmware's own). Bidirectional range meant the double-inversion
+  // still landed in-range and looked plausible in isolated bench testing,
+  // just mirrored — unlike the elbows, this didn't clamp to a dead stop, so
+  // it wasn't caught until compared side-by-side against sim.
+  //
+  // Every registry ID the firmware fits is now uninverted on the ROS side.
+  // If a joint is later found to need inversion again, that means the
+  // firmware's own internal handling changed — re-verify against the CDC
+  // spec's current wording before re-adding an entry here.
+  (void)servo_id;
+  return false;
 }
 
 // ════════════════════════════════════════════════════════════════════
