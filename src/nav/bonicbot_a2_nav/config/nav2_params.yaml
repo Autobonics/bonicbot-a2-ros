@@ -111,7 +111,10 @@ controller_server:
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.5
     min_theta_velocity_threshold: 0.001
-    failure_tolerance: 0.3
+    # 0.3 -> 1.0. This is how long FollowPath may keep failing before the server
+    # aborts the goal. map->odom freezes of 0.6 s were exceeding it and killing
+    # otherwise-healthy navigation; 1.0 rides through them.
+    failure_tolerance: 1.0
     progress_checker_plugin: "progress_checker"
     goal_checker_plugins: ["general_goal_checker"] 
     controller_plugins: ["FollowPath"]
@@ -169,7 +172,9 @@ controller_server:
       sim_time: 1.7
       linear_granularity: 0.05
       angular_granularity: 0.025
-      transform_tolerance: 0.2
+      # 0.2 -> 0.5. Measured map->odom staleness reached 0.62 s on hardware while
+      # this budget was 0.2, so DWB rejected the robot's own pose mid-path.
+      transform_tolerance: 0.5
       xy_goal_tolerance: 0.15   # Must match general_goal_checker xy_goal_tolerance
       yaw_goal_tolerance: 0.20   # Must match general_goal_checker yaw_goal_tolerance
       trans_stopped_velocity: 0.25
@@ -324,7 +329,10 @@ behavior_server:
       plugin: "nav2_behaviors/AssistedTeleop"
     global_frame: odom
     robot_base_frame: base_link
-    transform_tolerance: 0.1
+    # 0.1 -> 0.3. behavior_server had the tightest budget of any node, so the
+    # recovery behaviours failed for the same reason the controller did — which
+    # is why the robot spun and stopped instead of recovering.
+    transform_tolerance: 0.3
     use_sim_time: False  # Changed for real robot
     simulate_ahead_time: 2.0
     max_rotational_vel: 1.0

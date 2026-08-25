@@ -29,14 +29,25 @@ slam_toolbox:
     # hardware, from before navigation even started, and the costmaps reported
     # scans "earlier than all the data in the transform cache" — TF lagging its
     # own sensor stream. The RPi4 cannot feed this node at its previous rates.
-    throttle_scans: 2          # was 1 — process every other scan
+    # REVERTED to 1 on 2026-08-25. Setting this to 2 to save CPU backfired:
+    # slam_toolbox stamps the map->odom transform it publishes as
+    # (last processed scan time + transform_timeout), so halving the scan rate
+    # halved how often that stamp advances. Combined with dropped scans it left
+    # map->odom frozen for 600+ ms at a time, which controller_server sees as
+    # "Transform data too old" and then "Controller patience exceeded".
+    # Scan throughput here is a latency budget, not just a CPU cost.
+    throttle_scans: 1
     transform_publish_period: 0.05   # was 0.02 (50 Hz map->odom); 20 Hz is plenty
     map_update_interval: 2.0   # was 1.0
     resolution: 0.03
     min_laser_range: 0.0 
     max_laser_range: 12.0
     minimum_time_interval: 0.5
-    transform_timeout: 0.2
+    # 0.2 -> 0.5: how far into the future the published map->odom stays valid.
+    # Observed freezes reached 0.62 s, well past 0.2, so consumers rejected a
+    # transform that was actually still fine. This buys headroom for the gaps
+    # rather than pretending they will not happen on an RPi4.
+    transform_timeout: 0.5
     tf_buffer_duration: 30.
     stack_size_to_use: 40000000 
     enable_interactive_mode: true
