@@ -131,19 +131,28 @@ controller_server:
       debug_trajectory_details: True
       min_vel_x: 0.0
       min_vel_y: 0.0
-      max_vel_x: 0.50
+      # Velocity/accel model MUST stay under what the hardware can deliver, or
+      # DWB scores trajectories the robot cannot follow: the ESP interface
+      # silently clamps every command, predicted and actual paths diverge each
+      # cycle, and the result is jerky rotation plus "Failed to make progress".
+      # Ceiling is max_velocity (4.5 rad/s) * wheel_radius (0.06 m) = 0.27 m/s
+      # and motor_accel = 0.5 m/s^2, both from ros2_control.xacro. 0.22 leaves
+      # ~18% margin so the controller never plans into the clamp.
+      max_vel_x: 0.22
       max_vel_y: 0.0
+      # Pure spin at 1.0 rad/s needs only 1.0 * 0.2895/2 = 0.145 m/s per wheel,
+      # comfortably inside the 0.27 limit — this one was never the problem.
       max_vel_theta: 1.0
       min_speed_xy: 0.0
-      max_speed_xy: 0.50
+      max_speed_xy: 0.22
       min_speed_theta: 0.0
 
-      acc_lim_x: 2.5
+      acc_lim_x: 0.5
       acc_lim_y: 0.0
-      acc_lim_theta: 3.2
-      decel_lim_x: -2.5
+      acc_lim_theta: 2.0
+      decel_lim_x: -0.5
       decel_lim_y: 0.0
-      decel_lim_theta: -3.2
+      decel_lim_theta: -2.0
       vx_samples: 15  # Reduced from 20 for RPi
       vy_samples: 5
       vtheta_samples: 15  # Reduced from 20 for RPi
@@ -302,7 +311,9 @@ behavior_server:
     simulate_ahead_time: 2.0
     max_rotational_vel: 1.0
     min_rotational_vel: 0.4
-    rotational_acc_lim: 3.2
+    # Lowered from 3.2 to match the controller. Recovery spins were the most
+    # violent motion on the robot because this path bypasses FollowPath's limits.
+    rotational_acc_lim: 2.0
 
 robot_state_publisher:
   ros__parameters:
@@ -325,10 +336,12 @@ velocity_smoother:
     smoothing_frequency: 10.0  # Reduced from 20.0 for RPi
     scale_velocities: False
     feedback: "OPEN_LOOP"
-    max_velocity: [0.50, 0.0, 1.0]
-    min_velocity: [-0.50, 0.0, -1.0]
-    max_accel: [2.5, 0.0, 3.2]
-    max_decel: [-2.5, 0.0, -3.2]
+    # Must match FollowPath's limits above — a smoother that permits more than
+    # the planner does just re-introduces the clamp it exists to avoid.
+    max_velocity: [0.22, 0.0, 1.0]
+    min_velocity: [-0.22, 0.0, -1.0]
+    max_accel: [0.5, 0.0, 2.0]
+    max_decel: [-0.5, 0.0, -2.0]
     odom_topic: "/odometry/filtered"
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]

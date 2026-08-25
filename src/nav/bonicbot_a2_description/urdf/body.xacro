@@ -179,7 +179,17 @@
         <parent link="left_upper_arm"/>
         <child link="left_forearm"/>
         <origin xyz="0 0 -${upper_arm_length/2}" rpy="-0.235 0 0"/>
-        <axis xyz="0 -0.9725 -0.2328"/>
+        <!-- Axis reversed 2026-08-25: the physical elbow moved correctly for a
+             given command while RViz rendered its mirror image, on the SAME
+             /joint_states sample — an objective URDF-vs-hardware disagreement,
+             not a matter of expectation. Gazebo agreed with RViz because both
+             read this file. Fixed here rather than by re-adding elbow IDs
+             (4, 11) to isServoInverted(), which would have made RViz match by
+             breaking the real arm.
+             Reversing the axis vector alone mirrors the motion while leaving
+             the limits (and therefore the -0.873..0 command convention that
+             the registry, firmware and robot_app all share) untouched. -->
+        <axis xyz="0 0.9725 0.2328"/>
         <limit lower="-0.873" upper="0" effort="5.0" velocity="2.0"/>
         <dynamics damping="0.5" friction="0.1"/>
     </joint>
@@ -317,7 +327,17 @@
         <parent link="right_upper_arm"/>
         <child link="right_forearm"/>
         <origin xyz="0 0 -${upper_arm_length/2}" rpy="0.235 0 0"/>
-        <axis xyz="0 -0.9725 0.2328"/>
+        <!-- Axis reversed 2026-08-25: the physical elbow moved correctly for a
+             given command while RViz rendered its mirror image, on the SAME
+             /joint_states sample — an objective URDF-vs-hardware disagreement,
+             not a matter of expectation. Gazebo agreed with RViz because both
+             read this file. Fixed here rather than by re-adding elbow IDs
+             (4, 11) to isServoInverted(), which would have made RViz match by
+             breaking the real arm.
+             Reversing the axis vector alone mirrors the motion while leaving
+             the limits (and therefore the -0.873..0 command convention that
+             the registry, firmware and robot_app all share) untouched. -->
+        <axis xyz="0 0.9725 -0.2328"/>
         <limit lower="-0.873" upper="0" effort="5.0" velocity="2.0"/>
         <dynamics damping="0.5" friction="0.1"/>
     </joint>
