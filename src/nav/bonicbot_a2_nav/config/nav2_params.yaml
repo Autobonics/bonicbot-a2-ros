@@ -156,9 +156,24 @@ controller_server:
       # Pure spin at 1.0 rad/s needs only 1.0 * 0.2895/2 = 0.145 m/s per wheel,
       # comfortably inside the 0.27 limit — this one was never the problem.
       max_vel_theta: 1.0
-      min_speed_xy: 0.0
+      # Measured deadband, bench test 2026-08-25 on the real floor: the base does
+      # not move below 0.03 m/s or rotate below 0.10 rad/s — commands under those
+      # are accepted, produce no motion, and are invisible in the logs. With both
+      # of these at 0.0, DWB sampled 15 velocities across 0..0.22 (steps of
+      # ~0.0157), so its two lowest non-zero linear samples were BELOW the
+      # threshold. Picking one meant the robot sat still while controller_server
+      # happily logged "Passing new path to controller", until the progress
+      # checker gave up at exactly 10 s with "Failed to make progress".
+      #
+      # DWB rejects a trajectory only when translation < min_speed_xy AND
+      # |rotation| < min_speed_theta, so setting BOTH is required: it discards
+      # crawl-in-both-axes while still allowing a clean rotate-in-place or a
+      # clean straight run. Values carry ~20-30% margin over measurement.
+      # min_vel_x stays 0.0 — that bounds the sample RANGE, and a positive value
+      # would stop DWB ever sampling zero, i.e. never being able to stop.
+      min_speed_xy: 0.04
       max_speed_xy: 0.22
-      min_speed_theta: 0.0
+      min_speed_theta: 0.12
 
       acc_lim_x: 0.5
       acc_lim_y: 0.0
