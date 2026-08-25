@@ -121,8 +121,21 @@ controller_server:
 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.5
-      movement_time_allowance: 10.0
+      # Relaxed 2026-08-25 from 0.5 m / 10.0 s. That pair demanded 0.05 m/s
+      # sustained, which was 10% of the old max_vel_x (0.50) but 23% of the
+      # current 0.22 — the parameter was only ever calibrated for a robot twice
+      # as fast, and lowering max_vel_x to match the hardware exposed it.
+      #
+      # SimpleProgressChecker counts TRANSLATION ONLY, so every second spent
+      # rotating to align with the path or turning a corner scores zero while
+      # the clock runs. On a 0.22 m/s base that made healthy navigation abort
+      # at exactly 10 s, costing a 5 s `wait` recovery each time and turning
+      # smooth motion into a stutter.
+      #
+      # 0.25 m / 15.0 s ~ 0.017 m/s average: still detects a genuinely stuck
+      # robot within 15 s, without punishing a slow one for manoeuvring.
+      required_movement_radius: 0.25
+      movement_time_allowance: 15.0
     
     general_goal_checker:
       stateful: True
