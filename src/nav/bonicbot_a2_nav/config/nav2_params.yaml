@@ -124,8 +124,18 @@ controller_server:
     general_goal_checker:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.10        # 10cm — good balance of accuracy vs reliability
-      yaw_goal_tolerance: 0.09       # ±5 degrees (0.09 rad) — higher accuracy requested
+      # Relaxed 2026-08-25 from 0.10 alongside yaw_goal_tolerance below, for the
+      # same reason: the base now accelerates at 0.5 m/s^2 instead of 2.5, so it
+      # coasts into the goal more slowly and a tight window is easy to overshoot
+      # and then hunt around. 15cm matches what nav2_params_sim.yaml already uses.
+      xy_goal_tolerance: 0.15
+      # Relaxed 2026-08-25 from 0.09 (5.2 deg). The robot was physically arriving
+      # at the goal but the checker never fired, so it replanned forever. 0.09 was
+      # chosen when acc_lim_theta was 3.2; it is now 2.0 to match what the base can
+      # actually do, which means the robot settles into the goal heading more slowly
+      # and needs more margin. 0.20 rad = 11.5 deg. nav2_params_sim.yaml independently
+      # arrived at 0.15 for the same reason.
+      yaw_goal_tolerance: 0.20
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: True
@@ -160,8 +170,8 @@ controller_server:
       linear_granularity: 0.05
       angular_granularity: 0.025
       transform_tolerance: 0.2
-      xy_goal_tolerance: 0.10   # Must match general_goal_checker xy_goal_tolerance
-      yaw_goal_tolerance: 0.09   # Must match general_goal_checker yaw_goal_tolerance
+      xy_goal_tolerance: 0.15   # Must match general_goal_checker xy_goal_tolerance
+      yaw_goal_tolerance: 0.20   # Must match general_goal_checker yaw_goal_tolerance
       trans_stopped_velocity: 0.25
       stateful: True
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
