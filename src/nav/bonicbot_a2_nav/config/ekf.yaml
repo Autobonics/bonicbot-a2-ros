@@ -1,8 +1,15 @@
 ekf_filter_node:
   ros__parameters:
 
-    frequency: 15.0        # 15 Hz — warnings only during startup, fine for Pi
-    sensor_timeout: 0.1
+    # Lowered 15.0 -> 10.0 on 2026-08-25. The old comment claimed the update-rate
+    # warnings were "only during startup" — hardware testing disproved that: they
+    # ran continuously through every nav session, with single updates reaching
+    # 0.99 s and 2.11 s against a 66 ms budget. robot_localization's own warning
+    # says to decrease the rate, and 10 Hz is ample for a base capped at 0.22 m/s.
+    frequency: 10.0
+    # 0.1 s was shorter than the observed update time, so the filter was
+    # constantly declaring sensors timed out and re-initialising mid-run.
+    sensor_timeout: 0.2
     two_d_mode: true
 
     map_frame:       map

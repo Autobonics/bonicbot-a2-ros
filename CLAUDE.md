@@ -143,7 +143,7 @@ bonicbot-a2-ros/
     │
     └── sim/                                       # dev only — never on the robot
         └── bonicbot_a2_sim/
-            ├── config/{gazebo_params.yaml, nav2_params_sim.yaml}
+            ├── config/{gazebo_params.yaml, nav2_params_sim.yaml}   # nav2_params_sim.yaml UNUSED — to be deleted
             ├── launch/sim.launch.py
             └── worlds/*.sdf
 ```
@@ -563,6 +563,19 @@ ros2 launch bonicbot_a2_nav bringup.launch.py
   controllers). Cross-repo follow-up — not fixable in this repo.
 - **`ekf_imu.yaml`** — an alternate EKF config (IMU as sole yaw source), present but never
   launched. Either wire it behind a launch arg or delete it.
+- **`nav2_params_sim.yaml` — unused, slated for deletion.** No launch file references it:
+  `navigation.launch.py` defaults `params_file` to `bonicbot_a2_nav/config/nav2_params.yaml`,
+  `bringup.launch.py` never forwards `params_file`, and neither does robot_app's
+  `NavModeManager`. **Simulation runs on `nav2_params.yaml`, the same file the real robot
+  uses** — verified end to end in Gazebo on 2026-08-25 (mapping + `navigate_to_pose`
+  returning SUCCEEDED). That is the desired arrangement, not an accident: sim exists to be
+  a reference for the real robot, and the sim profile's faster tuning (`max_vel_x` 0.8 vs
+  0.22, `acc_lim_x` 3.5 vs 0.5, `controller_frequency` 20 vs 10) would validate motion the
+  hardware cannot reproduce. The two files have already drifted — fixes applied to
+  `nav2_params.yaml` were not mirrored into it — which is the usual cost of keeping two
+  files that must stay in sync. Kept for now only as a record of the faster tuning; delete
+  it once nobody wants that profile back. The only other mention is
+  `reference/robot_manager.py:532`, which is out of the build.
 - **`/battery_state`** — `RESP_BATTERY` (0x52) carries voltage, current and SOC%, so the
   data exists; nothing publishes the topic yet. Add a `sensor_msgs/BatteryState` publisher
   in `esp_hardware_interface.cpp`. The frame's trailing `active servo count + online IDs`
