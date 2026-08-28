@@ -208,10 +208,28 @@ controller_server:
       # Lookahead: how far along the path RPP aims. Scaled down from nav2's
       # 0.6 m default because this robot is small (0.44 m) and slow (0.22 m/s);
       # too long and it cuts corners, too short and it wobbles.
+      # Velocity-scaled lookahead, enabled 2026-08-27. Pure pursuit steers at a
+      # point lookahead_dist ahead on the path, so it ALWAYS cuts inside a
+      # curve — inherent to the algorithm. Entering a narrow passage from open
+      # space, it cut toward the inner wall and arrived with no clearance left,
+      # after which forward, reverse AND rotation were all blocked
+      # ("detected collision ahead" at 10 Hz, plus behavior_server refusing
+      # both spin and backup).
+      #
+      # Tying lookahead to speed fixes it at the mechanism: with
+      # use_regulated_linear_velocity_scaling already on, the robot slows for
+      # tight curves, so the lookahead now shrinks in exactly the places
+      # corner-cutting hurts.
+      #
+      #   lookahead = velocity * lookahead_time, clamped to [min, max]
+      #   0.22 m/s straight  -> 0.33 m, smooth
+      #   0.08 m/s on a curve -> clamps to 0.20 m, hugs the path
+      #
+      # lookahead_dist remains as the fallback when scaling is disabled.
       lookahead_dist: 0.4
-      min_lookahead_dist: 0.25
-      max_lookahead_dist: 0.6
-      use_velocity_scaled_lookahead_dist: false
+      min_lookahead_dist: 0.2
+      max_lookahead_dist: 0.5
+      use_velocity_scaled_lookahead_dist: true
       lookahead_time: 1.5
 
       # THE FIX for the stall above. When the path heading differs by more than
@@ -498,7 +516,14 @@ behavior_server:
     # is why the robot spun and stopped instead of recovering.
     transform_tolerance: 0.3
     use_sim_time: False  # Changed for real robot
-    simulate_ahead_time: 2.0
+    # 2.0 -> 1.0. behavior_server projects a recovery motion this far ahead
+    # and refuses to run it if the footprint hits anything. Wedged in a narrow
+    # passage that always found a wall, so spin and backup — the behaviours
+    # whose whole purpose is to un-wedge the robot — both aborted instantly
+    # with "Collision Ahead", one of them 1 ms after starting. A shorter
+    # projection lets them actually execute in the tight spots they exist for,
+    # while still checking a full second of motion.
+    simulate_ahead_time: 1.0
     max_rotational_vel: 1.0
     min_rotational_vel: 0.4
     # Lowered from 3.2 to match the controller. Recovery spins were the most
