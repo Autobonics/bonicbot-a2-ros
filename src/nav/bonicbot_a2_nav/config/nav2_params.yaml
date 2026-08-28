@@ -320,13 +320,28 @@ global_costmap:
         map_subscribe_transient_local: True
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
-        # Back to 0.30. This was raised to 0.35 as the other half of the local
-        # 0.55 -> 0.30 change above, on the same disproven reasoning, so it is
-        # reverted with it rather than left as an untested single variable.
-        # Raising it later to bias planned paths toward corridor centres is a
-        # reasonable idea — but as its own change, measured on its own.
-        inflation_radius: 0.30
+        # GLOBAL costmap only — this pair biases PLANNED PATHS toward the middle
+        # of open space. The local costmap is deliberately left alone, because
+        # that is what governs whether the controller can commit to a narrow gap.
+        #
+        # Neither value can make a passage impassable. Only cells within
+        # robot_radius (0.22) are lethal; everything out to inflation_radius is
+        # merely expensive, so a narrow corridor stays traversable — it is still
+        # the cheapest route when it is the only route.
+        #
+        # cost = 252 * exp(-cost_scaling_factor * distance_past_robot_radius)
+        #
+        # cost_scaling_factor is a DECAY RATE, so LOWER pushes the robot FURTHER
+        # from walls. At 3.0 the cost collapsed almost immediately (56 at 50 cm
+        # past the radius), making "40 cm from a wall" and "80 cm from a wall"
+        # look equally acceptable to the planner. At 2.0 the gradient survives
+        # far enough out to actually express a preference for open space.
+        #
+        # inflation_radius sets how FAR the gradient reaches; cost_scaling_factor
+        # sets how STEEP it is. A wide radius with a steep factor is still flat
+        # where it matters, so both move together or neither does.
+        cost_scaling_factor: 2.0
+        inflation_radius: 0.70
       always_send_full_costmap: True
 
 map_server:
