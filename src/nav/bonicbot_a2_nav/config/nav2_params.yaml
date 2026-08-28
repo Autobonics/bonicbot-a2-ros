@@ -221,9 +221,16 @@ controller_server:
       decel_lim_x: -0.5
       decel_lim_y: 0.0
       decel_lim_theta: -2.0
-      vx_samples: 15  # Reduced from 20 for RPi
+      # 15x15 -> 10x10, funding ObstacleFootprint's cost. Footprint checking is
+      # 4 edges per pose instead of 1 point, so the per-trajectory cost rises;
+      # cutting 225 candidates to 100 is a ~55% reduction that more than covers
+      # it. What is lost is velocity resolution — at max_vel_x 0.22 the linear
+      # step goes from 0.016 to 0.024 m/s, which is immaterial at this speed.
+      # controller_server was already missing its 10 Hz rate, so this should be
+      # net neutral or better on CPU.
+      vx_samples: 10
       vy_samples: 5
-      vtheta_samples: 15  # Reduced from 20 for RPi
+      vtheta_samples: 10
       # NOT use_sim_time — unrelated. This is DWB's forward simulation horizon:
       # how far ahead each of the ~236 candidate trajectories is rolled before
       # being collision-checked and scored.
@@ -248,7 +255,24 @@ controller_server:
       yaw_goal_tolerance: 0.20   # Must match general_goal_checker yaw_goal_tolerance
       trans_stopped_velocity: 0.25
       stateful: True
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      # ObstacleFootprint added 2026-08-27. BaseObstacle only samples the
+      # trajectory's CENTRE point, so it cannot see the robot's corners or which
+      # way it is pointing. With the local costmap now declaring the real
+      # rectangle, the inscribed radius is 0.114 m while the half-width is
+      # 0.1723 m — meaning cells 0.114-0.207 m from a wall are legal to the
+      # centre check but a sideways-oriented robot's edge is already through the
+      # wall. That is the edge-striking observed on hardware.
+      #
+      # ObstacleFootprint checks the full polygon outline at each pose, so the
+      # corners are genuinely collision-checked. This is what makes the small
+      # inscribed radius safe: near-wall goals stay reachable AND the edges stop
+      # clipping. Raising robot_radius instead would fix the clipping only by
+      # reinstating the 100% BaseObstacle rejection near walls.
+      #
+      # BaseObstacle is kept alongside it — cheap, and it still contributes the
+      # soft "prefer lower cost" gradient that ObstacleFootprint (pass/fail) does
+      # not provide.
+      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "ObstacleFootprint", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
       # The Oscillation critic bans a direction once it sees the robot reverse
       # into it, to stop dithering. The ban lifts on oscillation_reset_dist
       # (0.05 m) or oscillation_reset_angle (0.2 rad) — and, if set, after
@@ -264,6 +288,7 @@ controller_server:
       # without being able to trap the robot permanently.
       Oscillation.oscillation_reset_time: 5.0
       BaseObstacle.scale: 0.02
+      ObstacleFootprint.scale: 0.02
       PathAlign.scale: 32.0
       # 0.1 -> 0.325 (nav2's default) on 2026-08-27. The alignment critics work
       # by projecting a point this far ahead of the robot and scoring how close
