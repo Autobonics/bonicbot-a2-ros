@@ -173,210 +173,82 @@ controller_server:
       # arrived at 0.15 for the same reason.
       yaw_goal_tolerance: 0.20
     FollowPath:
-      plugin: "dwb_core::DWBLocalPlanner"
-      debug_trajectory_details: True
-      # ── TEMPORARY DEBUG — remove once the stall is diagnosed ──────────
-      # DWB can report exactly which trajectories it evaluated and which
-      # critic rejected each one. Enabled 2026-08-27 to settle a stall where
-      # the robot rocks in place: measured /cmd_vel shows linear.x = 0 with
-      # angular.z flipping sign indefinitely, TF shows ~2 cm of travel and a
-      # 56 deg yaw swing over 40 s, the global /plan is steady, and there is
-      # no "No valid trajectories" error — so DWB has valid options and is
-      # choosing rotation. These publishers name the critic responsible
-      # instead of leaving it to inference.
+      # ── RegulatedPurePursuitController, replacing DWB (2026-08-27) ──────
       #
-      #   /marker      MarkerArray  — every candidate arc, visible in RViz
-      #   /evaluation  LocalPlanEvaluation — per-critic scores, and the
-      #                critic that threw out each rejected trajectory
-      #   /local_plan  the single arc actually chosen
-      #   /cost_cloud  the cost grid DWB is scoring against
+      # Switched on evidence, not preference. DWB's /evaluation output during
+      # a near-wall stall showed the robot sitting EXACTLY on the path
+      # (PathDist raw = 0) but pointed the wrong way, with standing still
+      # scoring better than driving:
       #
-      # These cost CPU while on. Turn them off once the cause is known.
-      # Left OFF. Enabling these serialises ~128 trajectories x ~50 poses at
-      # 10 Hz — one snapshot measured 20,184 lines — and visibly degraded
-      # navigation while on. Flip to true only to diagnose, off immediately
-      # after. They earned their keep once: see the Oscillation note below.
-      publish_evaluation: false
-      publish_trajectories: false
-      publish_local_plan: false
-      publish_cost_grid_pc: false
-      min_vel_x: 0.0
-      min_vel_y: 0.0
-      # Velocity/accel model MUST stay under what the hardware can deliver, or
-      # DWB scores trajectories the robot cannot follow: the ESP interface
-      # silently clamps every command, predicted and actual paths diverge each
-      # cycle, and the result is jerky rotation plus "Failed to make progress".
-      # Ceiling is max_velocity (4.5 rad/s) * wheel_radius (0.06 m) = 0.27 m/s
-      # and motor_accel = 0.5 m/s^2, both from ros2_control.xacro. 0.22 leaves
-      # ~18% margin so the controller never plans into the clamp.
-      max_vel_x: 0.22
-      max_vel_y: 0.0
-      # Pure spin at 1.0 rad/s needs only 1.0 * 0.2895/2 = 0.145 m/s per wheel,
-      # comfortably inside the 0.27 limit — this one was never the problem.
-      max_vel_theta: 1.0
-      # Measured deadband, bench test 2026-08-25 on the real floor: the base does
-      # not move below 0.03 m/s or rotate below 0.10 rad/s — commands under those
-      # are accepted, produce no motion, and are invisible in the logs. With both
-      # of these at 0.0, DWB sampled 15 velocities across 0..0.22 (steps of
-      # ~0.0157), so its two lowest non-zero linear samples were BELOW the
-      # threshold. Picking one meant the robot sat still while controller_server
-      # happily logged "Passing new path to controller", until the progress
-      # checker gave up at exactly 10 s with "Failed to make progress".
+      #     critic         still    forward     delta
+      #     GoalAlign      18.00     20.40      +2.40
+      #     PathDist        0.00      1.60      +1.60
+      #     BaseObstacle    3.46      4.68      +1.22
+      #     GoalDist       21.00     20.40      -0.60
+      #     TOTAL          46.46     51.08      +4.62
       #
-      # DWB rejects a trajectory only when translation < min_speed_xy AND
-      # |rotation| < min_speed_theta, so setting BOTH is required: it discards
-      # crawl-in-both-axes while still allowing a clean rotate-in-place or a
-      # clean straight run.
+      # Three critics penalise forward motion and only one rewards it. Zeroing
+      # GoalAlign still leaves forward worse by 2.22, and raising GoalDist does
+      # not help because GoalAlign's raw worsens four times faster than
+      # GoalDist improves. It is a local minimum in the scoring, not a bad
+      # weight, so no ratio of DWB critics fixes it.
       #
-      # Set to the measured values EXACTLY, with no safety margin (2026-08-27).
-      # They previously carried +33% / +20%. Note the thresholds were measured
-      # at one battery level on one floor surface and both rise as the pack
-      # drains, so with no margin these can fall below the real floor late in a
-      # charge — if stalls reappear specifically on low battery or a different
-      # surface, re-run the sweep rather than assuming these still hold.
-      # min_vel_x stays 0.0 — that bounds the sample RANGE, and a positive value
-      # would stop DWB ever sampling zero, i.e. never being able to stop.
-      min_speed_xy: 0.03
-      max_speed_xy: 0.22
-      min_speed_theta: 0.10
+      # RPP has no critics and no voting. It picks a lookahead point on the
+      # path and steers to it geometrically, so ties and local minima of this
+      # kind cannot arise. It also samples nothing — DWB scored 128
+      # trajectories at 10 Hz — which matters on an RPi4 that logs "Control
+      # loop missed its desired rate" continuously.
+      #
+      # git revert restores DWB if this proves worse.
+      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
 
-      acc_lim_x: 0.5
-      acc_lim_y: 0.0
-      acc_lim_theta: 2.0
-      decel_lim_x: -0.5
-      decel_lim_y: 0.0
-      decel_lim_theta: -2.0
-      # 15x15 -> 10x10, funding ObstacleFootprint's cost. Footprint checking is
-      # 4 edges per pose instead of 1 point, so the per-trajectory cost rises;
-      # cutting 225 candidates to 100 is a ~55% reduction that more than covers
-      # it. What is lost is velocity resolution — at max_vel_x 0.22 the linear
-      # step goes from 0.016 to 0.024 m/s, which is immaterial at this speed.
-      # controller_server was already missing its 10 Hz rate, so this should be
-      # net neutral or better on CPU.
-      vx_samples: 15
-      vy_samples: 5
-      vtheta_samples: 15
-      # NOT use_sim_time — unrelated. This is DWB's forward simulation horizon:
-      # how far ahead each of the ~236 candidate trajectories is rolled before
-      # being collision-checked and scored.
-      #
-      # 1.7 s at max_vel_x 0.22 traced a 0.37 m arc. A 0.8 m corridor leaves
-      # only a ~0.36 m strip for the robot centre (walls are lethal out to
-      # robot_radius 0.22), so any arc with curvature left that strip and was
-      # rejected — hence "No valid trajectories out of 236!" and a fall to
-      # recovery in exactly the places the robot could physically fit.
-      #
-      # 1.2 s traces 0.26 m, which fits. Going below ~0.8 would start losing
-      # corner anticipation. Side benefit: DWB samples each arc every
-      # linear_granularity (0.05 m) and does a costmap lookup per point, so a
-      # shorter horizon is proportionally less work in controller_server.
-      sim_time: 1.2
-      linear_granularity: 0.05
-      angular_granularity: 0.025
-      # 0.2 -> 0.5. Measured map->odom staleness reached 0.62 s on hardware while
-      # this budget was 0.2, so DWB rejected the robot's own pose mid-path.
+      desired_linear_vel: 0.22          # = max_vel_x; hardware clamps at 0.27
+      max_angular_accel: 2.0            # matches the old acc_lim_theta
+
+      # Lookahead: how far along the path RPP aims. Scaled down from nav2's
+      # 0.6 m default because this robot is small (0.44 m) and slow (0.22 m/s);
+      # too long and it cuts corners, too short and it wobbles.
+      lookahead_dist: 0.4
+      min_lookahead_dist: 0.25
+      max_lookahead_dist: 0.6
+      use_velocity_scaled_lookahead_dist: false
+      lookahead_time: 1.5
+
+      # THE FIX for the stall above. When the path heading differs by more than
+      # rotate_to_heading_min_angle, RPP rotates in place FIRST and only then
+      # drives. That is precisely the manoeuvre DWB could never commit to — it
+      # is explicit behaviour here rather than an emergent score.
+      use_rotate_to_heading: true
+      rotate_to_heading_min_angle: 0.785        # 45 deg
+      rotate_to_heading_angular_vel: 0.8        # over the 0.10 rad/s deadband,
+                                                # under max_vel_theta 1.0
+
+      # Every one of these must stay ABOVE the measured hardware deadband
+      # (0.03 m/s linear), or RPP commands a speed the base cannot execute and
+      # the robot silently stalls — the failure mode that cost us hours.
+      min_approach_linear_velocity: 0.05
+      approach_velocity_scaling_dist: 0.5
+
+      # Slow down on tight curves. min_speed is the floor it may slow to and is
+      # deliberately well clear of the 0.03 deadband.
+      use_regulated_linear_velocity_scaling: true
+      regulated_linear_scaling_min_radius: 0.9
+      regulated_linear_scaling_min_speed: 0.08
+
+      # Cost-based slowdown left OFF: it scales speed by proximity to
+      # obstacles, and near a wall that can drive the command under the
+      # deadband and stall the robot outright.
+      use_cost_regulated_linear_velocity_scaling: false
+
+      use_collision_detection: true
+      max_allowed_time_to_collision_up_to_carrot: 1.0
+
+      allow_reversing: false            # differential drive, no rear sensing
+      use_interpolation: true
+      max_robot_pose_search_dist: 10.0
+
+      # 0.5 as with DWB: map->odom staleness reached 0.62 s on this hardware.
       transform_tolerance: 0.5
-      xy_goal_tolerance: 0.15   # Must match general_goal_checker xy_goal_tolerance
-      yaw_goal_tolerance: 0.20   # Must match general_goal_checker yaw_goal_tolerance
-      trans_stopped_velocity: 0.25
-      stateful: True
-      # ObstacleFootprint added 2026-08-27. BaseObstacle only samples the
-      # trajectory's CENTRE point, so it cannot see the robot's corners or which
-      # way it is pointing. With the local costmap now declaring the real
-      # rectangle, the inscribed radius is 0.114 m while the half-width is
-      # 0.1723 m — meaning cells 0.114-0.207 m from a wall are legal to the
-      # centre check but a sideways-oriented robot's edge is already through the
-      # wall. That is the edge-striking observed on hardware.
-      #
-      # ObstacleFootprint checks the full polygon outline at each pose, so the
-      # corners are genuinely collision-checked. This is what makes the small
-      # inscribed radius safe: near-wall goals stay reachable AND the edges stop
-      # clipping. Raising robot_radius instead would fix the clipping only by
-      # reinstating the 100% BaseObstacle rejection near walls.
-      #
-      # BaseObstacle is kept alongside it — cheap, and it still contributes the
-      # soft "prefer lower cost" gradient that ObstacleFootprint (pass/fail) does
-      # not provide.
-      # Oscillation REMOVED 2026-08-27, from measurement rather than theory.
-      # Two independent /evaluation snapshots taken during stalls both read:
-      #
-      #     candidates: 128   rejected: 66   accepted: 62
-      #     REJECTED BY: {'Oscillation': 66}
-      #
-      # Every rejection was Oscillation; BaseObstacle rejected nothing. That
-      # clears obstacles, robot_radius, inflation and the footprint as causes
-      # of this stall — several earlier commits chased exactly those.
-      #
-      # All 62 survivors had vtheta >= 0: turning the other way was banned
-      # outright, so the robot could only rotate one direction. It would turn,
-      # the ban would clear on oscillation_reset_angle (0.2 rad, while the
-      # robot swung ~0.98 rad), then re-latch on the opposite direction. The
-      # critic meant to stop dithering was producing it — measured as a 56
-      # degree yaw swing across 2 cm of travel over 40 s, with /cmd_vel
-      # showing linear.x pinned at 0 and angular.z flipping sign forever.
-      #
-      # It cannot be tuned out. From dwb_critics/oscillation.cpp:
-      #     if (x_only_threshold_ <= 0.0 || fabs(cmd_vel.x) <= x_only_threshold_)
-      #         theta_trend_.update(cmd_vel.theta);
-      # With vx near zero that branch always runs, and setting x_only_threshold
-      # to 0.0 makes it always run too. No value disables the theta ban while
-      # the robot is barely translating, which is precisely when it hurts.
-      #
-      # SimpleProgressChecker's 15 s allowance remains the backstop against
-      # genuine dithering.
-      critics: ["RotateToGoal", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
-      # The Oscillation critic bans a direction once it sees the robot reverse
-      # into it, to stop dithering. The ban lifts on oscillation_reset_dist
-      # (0.05 m) or oscillation_reset_angle (0.2 rad) — and, if set, after
-      # oscillation_reset_time seconds. That last one defaults to -1, meaning
-      # NEVER, which creates a closed loop: the robot is banned from the only
-      # directions it could use, so it cannot travel the 5 cm that would lift
-      # the ban, so it stays banned. Observed 2026-08-27 as a hard lockup —
-      # "No valid trajectories out of 236!" with 44% rejected by Oscillation
-      # and 56% by BaseObstacle, indefinitely, while even the spin recovery
-      # failed with "Collision Ahead".
-      #
-      # 5.0 s gives the critic a timeout so it can still stop genuine dithering
-      # without being able to trap the robot permanently.
-      BaseObstacle.scale: 0.02
-      PathAlign.scale: 32.0
-      # 0.1 -> 0.325 (nav2's default) on 2026-08-27. The alignment critics work
-      # by projecting a point this far ahead of the robot and scoring how close
-      # it lands to the path — it is how DWB judges "am I pointing the right
-      # way?". At 0.1 m that point sat INSIDE the robot's own footprint
-      # (robot_radius 0.22), so rotating the robot barely moved it and the
-      # alignment signal was tiny and noisy. DWB could not distinguish a good
-      # heading from a bad one, so it over-corrected, swung past, and corrected
-      # back — the rocking-in-place seen on hardware.
-      #
-      # It was goal-dependent for the same reason: with the path roughly
-      # straight ahead the weak signal sufficed, but a path demanding a real
-      # turn needed exactly the gradient that was missing. Confirmed on
-      # hardware — while stuck oscillating, a different nearby goal was reached
-      # without trouble, which rules out the robot, the wheels, twist_mux and
-      # /cmd_vel and leaves trajectory scoring as the only candidate.
-      #
-      # 0.325 -> 0.2, correcting an overshoot. 0.325 is nav2's default, sized for
-      # faster robots with longer simulation windows. Here sim_time 1.2 at
-      # max_vel_x 0.22 traces only a 0.26 m arc, so a 0.325 m forward point sat
-      # BEYOND the end of every candidate trajectory — the robot was aligning to
-      # a point none of them ever reach, anticipating turns too early and weaving.
-      # Reported from hardware as a loss of smoothness on paths that previously
-      # ran cleanly.
-      #
-      # The window is bounded on both sides:
-      #   below ~0.114  the point is inside the footprint, heading changes barely
-      #                 move it, signal is noise -> rocking in place (the 0.1 bug)
-      #   above ~0.26   the point is past the simulated arc -> over-anticipation
-      # 0.2 sits between: clear of the body, inside the arc.
-      PathAlign.forward_point_distance: 0.2
-      GoalAlign.scale: 24.0
-      GoalAlign.forward_point_distance: 0.2
-      PathDist.scale: 32.0
-      GoalDist.scale: 24.0
-      RotateToGoal.scale: 32.0
-      RotateToGoal.slowing_factor: 5.0
-      RotateToGoal.lookahead_time: -1.0
 
 local_costmap:
   local_costmap:
