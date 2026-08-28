@@ -236,12 +236,27 @@ local_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        # 0.55 was larger than the global costmap's 0.30 — backwards. The LOCAL
-        # costmap is what DWB scores trajectories against, so a wide halo here is
-        # what stops the controller committing to a gap; the GLOBAL one wants the
-        # wider value so planned paths prefer corridor centres. 0.30 = robot_radius
-        # + 8 cm, which leaves a 0.76 m doorway passable for a 0.44 m robot.
-        inflation_radius: 0.30
+        # RESTORED to 0.55 on 2026-08-27. It was cut to 0.30 on the theory that a
+        # wide halo was what blocked narrow passages — that diagnosis was WRONG.
+        # The narrow-path failures turned out to be RViz publishing goals in the
+        # `odom` frame (main.rviz Fixed Frame), which aged out of the 10 s tf2
+        # buffer. Fixing the frame fixed the passages; the inflation cut fixed
+        # nothing and cost real obstacle avoidance.
+        #
+        # Why it hurt: the band between robot_radius (0.22) and inflation_radius
+        # is the GRADIENT that pushes the robot off walls — not a hard limit, a
+        # preference. At 0.30 that band was only 8 cm wide and, with
+        # cost_scaling_factor 3.0, decayed to nothing almost immediately. The
+        # local costmap is what DWB scores against, so the controller was left
+        # effectively blind to obstacle proximity: clipped corners, wall-brushing
+        # and extra recoveries.
+        #
+        # Compounding it, BaseObstacle.scale is 0.02 against PathAlign/PathDist
+        # at 32.0 — obstacle cost is already weighted ~1500x lower than path
+        # following. Narrowing the inflation removed what little signal was left.
+        # If active obstacle avoidance is wanted, BaseObstacle.scale is the real
+        # lever; change it deliberately and on its own.
+        inflation_radius: 0.55
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
         enabled: True
@@ -299,10 +314,12 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        # Raised from 0.30: the global planner should bias toward the middle of
-        # free space. Still under a 0.76 m doorway's 0.38 m half-width, so
-        # doorways stay plannable rather than becoming uniformly high-cost.
-        inflation_radius: 0.35
+        # Back to 0.30. This was raised to 0.35 as the other half of the local
+        # 0.55 -> 0.30 change above, on the same disproven reasoning, so it is
+        # reverted with it rather than left as an untested single variable.
+        # Raising it later to bias planned paths toward corridor centres is a
+        # reasonable idea — but as its own change, measured on its own.
+        inflation_radius: 0.30
       always_send_full_costmap: True
 
 map_server:
