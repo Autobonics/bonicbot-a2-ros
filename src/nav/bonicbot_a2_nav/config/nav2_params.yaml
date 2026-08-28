@@ -304,7 +304,31 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.05
-      robot_radius: 0.22
+      # LOCAL costmap only — global still uses robot_radius.
+      #
+      # robot_radius describes a CIRCLE, so 0.22 told nav2 the robot is 0.44 m
+      # across in every direction. It is not: 0.228 m long (chassis_length) by
+      # 0.345 m wide (wheel span, wheel_offset_y 0.14475 + wheel_thickness/2).
+      # 0.22 is the CIRCUMSCRIBED radius applied even lengthwise, where the true
+      # half-extent is 0.114.
+      #
+      # The cost of that: every cell within 0.22 m of an obstacle is marked
+      # INSCRIBED_INFLATED_OBSTACLE (253), and DWB's BaseObstacle critic throws
+      # out any trajectory touching one. Every trajectory starts at the robot's
+      # current pose, so once the centre drifts inside that band ALL 236 are
+      # rejected before they begin — observed on hardware 2026-08-27 as
+      # "No valid trajectories out of 236! 1.00: BaseObstacle/Trajectory Hits
+      # Obstacle", reliably near walls and never in open space.
+      #
+      # The real polygon drops the inscribed radius to 0.114, roughly halving
+      # how close the robot may legitimately approach a wall.
+      #
+      # TRADE-OFF: BaseObstacle samples trajectory CENTRE points and relies on
+      # the inscribed radius for margin. With a smaller one there is less slack,
+      # so corner-clipping while turning becomes possible. The proper mitigation
+      # is the ObstacleFootprint critic (full-polygon checking), deliberately not
+      # added here because it costs CPU this RPi4 does not currently have.
+      footprint: "[[0.114, 0.1723], [0.114, -0.1723], [-0.114, -0.1723], [-0.114, 0.1723]]"
       plugins: ["voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
