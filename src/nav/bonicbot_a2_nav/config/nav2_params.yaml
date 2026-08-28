@@ -265,9 +265,27 @@ controller_server:
       Oscillation.oscillation_reset_time: 5.0
       BaseObstacle.scale: 0.02
       PathAlign.scale: 32.0
-      PathAlign.forward_point_distance: 0.1
+      # 0.1 -> 0.325 (nav2's default) on 2026-08-27. The alignment critics work
+      # by projecting a point this far ahead of the robot and scoring how close
+      # it lands to the path — it is how DWB judges "am I pointing the right
+      # way?". At 0.1 m that point sat INSIDE the robot's own footprint
+      # (robot_radius 0.22), so rotating the robot barely moved it and the
+      # alignment signal was tiny and noisy. DWB could not distinguish a good
+      # heading from a bad one, so it over-corrected, swung past, and corrected
+      # back — the rocking-in-place seen on hardware.
+      #
+      # It was goal-dependent for the same reason: with the path roughly
+      # straight ahead the weak signal sufficed, but a path demanding a real
+      # turn needed exactly the gradient that was missing. Confirmed on
+      # hardware — while stuck oscillating, a different nearby goal was reached
+      # without trouble, which rules out the robot, the wheels, twist_mux and
+      # /cmd_vel and leaves trajectory scoring as the only candidate.
+      #
+      # At 0.325 the projected point is well clear of the body, so heading
+      # changes move it meaningfully and the critic yields a stable gradient.
+      PathAlign.forward_point_distance: 0.325
       GoalAlign.scale: 24.0
-      GoalAlign.forward_point_distance: 0.1
+      GoalAlign.forward_point_distance: 0.325
       PathDist.scale: 32.0
       GoalDist.scale: 24.0
       RotateToGoal.scale: 32.0
