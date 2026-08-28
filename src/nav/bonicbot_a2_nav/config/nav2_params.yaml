@@ -135,35 +135,28 @@ controller_server:
     controller_plugins: ["FollowPath"]
 
     progress_checker:
-      # PoseProgressChecker, not SimpleProgressChecker. Simple only measures
-      # TRANSLATION, so a robot rotating in place scores zero progress no matter
-      # how correctly it is behaving. That is exactly the manoeuvre required when
-      # the robot sits near a wall and the goal is behind it: it must turn before
-      # it can drive, and it cannot translate while turning without hitting the
-      # wall. Observed 2026-08-27 — three consecutive aborts at exactly 15 s each
-      # while the robot turned on the spot, 2 cm of travel in 53 seconds.
+      # REVERTED to SimpleProgressChecker on 2026-08-27. It was swapped for
+      # PoseProgressChecker (d736f9c) on the theory that the robot was being
+      # punished for purposefully turning to face its path near a wall. Field
+      # testing disproved that: the robot was OSCILLATING, not turning, and the
+      # abort was the only thing rescuing it.
       #
-      # Pose passes if EITHER the distance OR the angle threshold is met, so
-      # turning counts as work. A genuinely wedged robot still moves neither and
-      # is still caught, so the stuck-detection safety is unchanged.
-      plugin: "nav2_controller::PoseProgressChecker"
+      # Why Pose made it worse: it counts rotation as progress, so a robot
+      # rocking in place keeps PASSING the check. It never aborts, so recovery
+      # never runs, so nothing physically shoves the robot out of the stuck
+      # spot. Meanwhile the Oscillation critic keeps banning directions until
+      # nothing is left. A narrow passage that used to traverse fine became an
+      # almost-certain lockup.
+      #
+      # Simple's abort IS the escape hatch. Keep it. The dithering itself is
+      # addressed by oscillation_reset_time in FollowPath below.
+      plugin: "nav2_controller::SimpleProgressChecker"
       # Relaxed 2026-08-25 from 0.5 m / 10.0 s. That pair demanded 0.05 m/s
       # sustained, which was 10% of the old max_vel_x (0.50) but 23% of the
-      # current 0.22 — the parameter was only ever calibrated for a robot twice
-      # as fast, and lowering max_vel_x to match the hardware exposed it.
-      #
-      # SimpleProgressChecker counts TRANSLATION ONLY, so every second spent
-      # rotating to align with the path or turning a corner scores zero while
-      # the clock runs. On a 0.22 m/s base that made healthy navigation abort
-      # at exactly 10 s, costing a 5 s `wait` recovery each time and turning
-      # smooth motion into a stutter.
-      #
-      # 0.25 m / 15.0 s ~ 0.017 m/s average: still detects a genuinely stuck
-      # robot within 15 s, without punishing a slow one for manoeuvring.
+      # current 0.22 — calibrated for a robot twice as fast.
       required_movement_radius: 0.25
-      required_movement_angle: 0.5    # radians (~29 deg) — rotation now counts
       movement_time_allowance: 15.0
-    
+
     general_goal_checker:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
@@ -256,6 +249,20 @@ controller_server:
       trans_stopped_velocity: 0.25
       stateful: True
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      # The Oscillation critic bans a direction once it sees the robot reverse
+      # into it, to stop dithering. The ban lifts on oscillation_reset_dist
+      # (0.05 m) or oscillation_reset_angle (0.2 rad) — and, if set, after
+      # oscillation_reset_time seconds. That last one defaults to -1, meaning
+      # NEVER, which creates a closed loop: the robot is banned from the only
+      # directions it could use, so it cannot travel the 5 cm that would lift
+      # the ban, so it stays banned. Observed 2026-08-27 as a hard lockup —
+      # "No valid trajectories out of 236!" with 44% rejected by Oscillation
+      # and 56% by BaseObstacle, indefinitely, while even the spin recovery
+      # failed with "Collision Ahead".
+      #
+      # 5.0 s gives the critic a timeout so it can still stop genuine dithering
+      # without being able to trap the robot permanently.
+      Oscillation.oscillation_reset_time: 5.0
       BaseObstacle.scale: 0.02
       PathAlign.scale: 32.0
       PathAlign.forward_point_distance: 0.1
