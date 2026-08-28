@@ -490,20 +490,35 @@ ros2 topic pub /face/matrix_action std_msgs/msg/UInt8MultiArray "{data: [<action
 | 14 | `SET_FRAME` | 384B RGB (16×8 grid) | too large to hand-type via `ros2 topic pub`; needs a small script |
 
 ```bash
-# Pause any running animation first
+# Pause any running animation first (required before SET_PIXEL or SET_TEXT)
 ros2 topic pub /face/matrix_action std_msgs/msg/UInt8MultiArray "{data: [10]}" --once
 
-# Set a single pixel to red (X=0, Y=0)
-ros2 topic pub /face/matrix_action std_msgs/msg/UInt8MultiArray "{data: [12, 0, 0, 255, 0, 0]}" --once
+# Play a specific built-in animation ID (e.g., Animation ID 1)
+ros2 topic pub /face/matrix_action std_msgs/msg/UInt8MultiArray "{data: [3, 1]}" --once
 
-# Show "HI"
+# Adjust animation playback speed (e.g., speed=50)
+ros2 topic pub /face/matrix_action std_msgs/msg/UInt8MultiArray "{data: [5, 50]}" --once
+
+# Set text / animation tint color to Green (R=0, G=255, B=0)
+ros2 topic pub /face/matrix_action std_msgs/msg/UInt8MultiArray "{data: [2, 0, 255, 0]}" --once
+
+# Show "HI" text
 ros2 topic pub /face/matrix_action std_msgs/msg/UInt8MultiArray "{data: [1, 72, 73]}" --once
 
-# Brightness to 128
+# Set a single pixel to red (X=0, Y=0, R=255, G=0, B=0)
+ros2 topic pub /face/matrix_action std_msgs/msg/UInt8MultiArray "{data: [12, 0, 0, 255, 0, 0]}" --once
+
+# Adjust brightness (0-255, e.g. 128)
 ros2 topic pub /face/matrix_action std_msgs/msg/UInt8MultiArray "{data: [4, 128]}" --once
 
-# Clear
+# Resume / activate animation engine first if CLEAR doesn't respond
+ros2 topic pub /face/matrix_action std_msgs/msg/UInt8MultiArray "{data: [9]}" --once
+
+# Clear display (works reliably after PLAY [9] activates the matrix engine)
 ros2 topic pub /face/matrix_action std_msgs/msg/UInt8MultiArray "{data: [13]}" --once
+
+# Send a full solid RED frame (Action 14 = SET_FRAME, 384 bytes RGB for 16x8 grid)
+python3 -c "import rclpy, time; from std_msgs.msg import UInt8MultiArray; rclpy.init(); n=rclpy.create_node('f'); p=n.create_publisher(UInt8MultiArray, '/face/matrix_action', 10); time.sleep(0.5); m=UInt8MultiArray(); m.data=[14] + [255, 0, 0]*128; p.publish(m); print('Full RED frame published'); rclpy.shutdown()"
 ```
 
 > **Full-display color change — important finding:** `SET_COLOR` (action 2) does
@@ -514,8 +529,8 @@ ros2 topic pub /face/matrix_action std_msgs/msg/UInt8MultiArray "{data: [13]}" -
 > text or an animation is actively rendering, not a fill command. `SET_PIXEL` was
 > confirmed working (individual pixels update correctly), so the transport and
 > firmware are both fine — to get an actual full-red screen, use `SET_FRAME` with
-> all 128 pixels set to the same color in one 384-byte packet, or drive `SET_PIXEL`
-> across every coordinate.
+> all 128 pixels set to the same color in one 384-byte packet (see python one-liner above),
+> or drive `SET_PIXEL` across every coordinate.
 
 ---
 
