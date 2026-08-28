@@ -181,12 +181,19 @@ controller_server:
       # DWB rejects a trajectory only when translation < min_speed_xy AND
       # |rotation| < min_speed_theta, so setting BOTH is required: it discards
       # crawl-in-both-axes while still allowing a clean rotate-in-place or a
-      # clean straight run. Values carry ~20-30% margin over measurement.
+      # clean straight run.
+      #
+      # Set to the measured values EXACTLY, with no safety margin (2026-08-27).
+      # They previously carried +33% / +20%. Note the thresholds were measured
+      # at one battery level on one floor surface and both rise as the pack
+      # drains, so with no margin these can fall below the real floor late in a
+      # charge — if stalls reappear specifically on low battery or a different
+      # surface, re-run the sweep rather than assuming these still hold.
       # min_vel_x stays 0.0 — that bounds the sample RANGE, and a positive value
       # would stop DWB ever sampling zero, i.e. never being able to stop.
-      min_speed_xy: 0.04
+      min_speed_xy: 0.03
       max_speed_xy: 0.22
-      min_speed_theta: 0.12
+      min_speed_theta: 0.10
 
       acc_lim_x: 0.5
       acc_lim_y: 0.0
