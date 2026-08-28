@@ -281,11 +281,22 @@ controller_server:
       # without trouble, which rules out the robot, the wheels, twist_mux and
       # /cmd_vel and leaves trajectory scoring as the only candidate.
       #
-      # At 0.325 the projected point is well clear of the body, so heading
-      # changes move it meaningfully and the critic yields a stable gradient.
-      PathAlign.forward_point_distance: 0.325
+      # 0.325 -> 0.2, correcting an overshoot. 0.325 is nav2's default, sized for
+      # faster robots with longer simulation windows. Here sim_time 1.2 at
+      # max_vel_x 0.22 traces only a 0.26 m arc, so a 0.325 m forward point sat
+      # BEYOND the end of every candidate trajectory — the robot was aligning to
+      # a point none of them ever reach, anticipating turns too early and weaving.
+      # Reported from hardware as a loss of smoothness on paths that previously
+      # ran cleanly.
+      #
+      # The window is bounded on both sides:
+      #   below ~0.114  the point is inside the footprint, heading changes barely
+      #                 move it, signal is noise -> rocking in place (the 0.1 bug)
+      #   above ~0.26   the point is past the simulated arc -> over-anticipation
+      # 0.2 sits between: clear of the body, inside the arc.
+      PathAlign.forward_point_distance: 0.2
       GoalAlign.scale: 24.0
-      GoalAlign.forward_point_distance: 0.325
+      GoalAlign.forward_point_distance: 0.2
       PathDist.scale: 32.0
       GoalDist.scale: 24.0
       RotateToGoal.scale: 32.0
