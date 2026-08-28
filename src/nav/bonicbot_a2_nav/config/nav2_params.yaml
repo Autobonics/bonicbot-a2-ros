@@ -46,7 +46,22 @@ bt_navigator:
     robot_base_frame: base_link
     odom_topic: /odometry/filtered
     bt_loop_duration: 50  # Changed from 10 to 50ms (20Hz instead of 100Hz) - KEY CHANGE
-    default_server_timeout: 20
+    # MILLISECONDS, not seconds. This is how long the behaviour tree waits for
+    # another node (planner/controller/behavior server) to acknowledge an action
+    # goal or service request before declaring it failed.
+    #
+    # 20 ms is nav2's stock default, tuned for a workstation. A full handshake
+    # here — serialise, DDS transport, target executor wakes, accepts goal, ack
+    # back, BT executor wakes — takes 50-300 ms on a loaded RPi4, so it failed
+    # constantly. The failure mode is worse than "slow": when the ack times out
+    # the BT assumes the action never started and moves to the NEXT recovery,
+    # but the target node received it and runs it anyway. Observed 2026-08-27:
+    # backup, spin and wait all starting within 0.6 ms of each other, backup
+    # then failing because spin was rotating the robot underneath it.
+    #
+    # Raised to 600 ms. Only cost is that a genuinely dead server takes 600 ms
+    # instead of 20 ms to detect — irrelevant beside the 5 s wait recovery.
+    default_server_timeout: 600
     
     plugin_lib_names:
     - nav2_compute_path_to_pose_action_bt_node
@@ -204,7 +219,21 @@ controller_server:
       vx_samples: 15  # Reduced from 20 for RPi
       vy_samples: 5
       vtheta_samples: 15  # Reduced from 20 for RPi
-      sim_time: 1.7
+      # NOT use_sim_time — unrelated. This is DWB's forward simulation horizon:
+      # how far ahead each of the ~236 candidate trajectories is rolled before
+      # being collision-checked and scored.
+      #
+      # 1.7 s at max_vel_x 0.22 traced a 0.37 m arc. A 0.8 m corridor leaves
+      # only a ~0.36 m strip for the robot centre (walls are lethal out to
+      # robot_radius 0.22), so any arc with curvature left that strip and was
+      # rejected — hence "No valid trajectories out of 236!" and a fall to
+      # recovery in exactly the places the robot could physically fit.
+      #
+      # 1.2 s traces 0.26 m, which fits. Going below ~0.8 would start losing
+      # corner anticipation. Side benefit: DWB samples each arc every
+      # linear_granularity (0.05 m) and does a costmap lookup per point, so a
+      # shorter horizon is proportionally less work in controller_server.
+      sim_time: 1.2
       linear_granularity: 0.05
       angular_granularity: 0.025
       # 0.2 -> 0.5. Measured map->odom staleness reached 0.62 s on hardware while
