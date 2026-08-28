@@ -228,9 +228,9 @@ controller_server:
       # step goes from 0.016 to 0.024 m/s, which is immaterial at this speed.
       # controller_server was already missing its 10 Hz rate, so this should be
       # net neutral or better on CPU.
-      vx_samples: 10
+      vx_samples: 15
       vy_samples: 5
-      vtheta_samples: 10
+      vtheta_samples: 15
       # NOT use_sim_time — unrelated. This is DWB's forward simulation horizon:
       # how far ahead each of the ~236 candidate trajectories is rolled before
       # being collision-checked and scored.
@@ -272,7 +272,7 @@ controller_server:
       # BaseObstacle is kept alongside it — cheap, and it still contributes the
       # soft "prefer lower cost" gradient that ObstacleFootprint (pass/fail) does
       # not provide.
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "ObstacleFootprint", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
       # The Oscillation critic bans a direction once it sees the robot reverse
       # into it, to stop dithering. The ban lifts on oscillation_reset_dist
       # (0.05 m) or oscillation_reset_angle (0.2 rad) — and, if set, after
@@ -288,7 +288,6 @@ controller_server:
       # without being able to trap the robot permanently.
       Oscillation.oscillation_reset_time: 5.0
       BaseObstacle.scale: 0.02
-      ObstacleFootprint.scale: 0.02
       PathAlign.scale: 32.0
       # 0.1 -> 0.325 (nav2's default) on 2026-08-27. The alignment critics work
       # by projecting a point this far ahead of the robot and scoring how close
@@ -364,7 +363,15 @@ local_costmap:
       # so corner-clipping while turning becomes possible. The proper mitigation
       # is the ObstacleFootprint critic (full-polygon checking), deliberately not
       # added here because it costs CPU this RPi4 does not currently have.
-      footprint: "[[0.114, 0.1723], [0.114, -0.1723], [-0.114, -0.1723], [-0.114, 0.1723]]"
+      # Back to a circle at 0.24, replacing the measured footprint polygon.
+      # The polygon gave an inscribed radius of 0.114 m, which let near-wall
+      # goals work but allowed the corners to clip, because BaseObstacle only
+      # checks trajectory CENTRE points and never the robot's orientation.
+      # 0.24 is just over the true circumscribed radius (0.207 m), so the whole
+      # robot is covered whatever way it is pointing — clipping cannot happen
+      # geometrically, without needing the ObstacleFootprint critic and its CPU.
+      # Slightly more conservative than the original 0.22.
+      robot_radius: 0.24
       plugins: ["voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
@@ -389,7 +396,10 @@ local_costmap:
         # following. Narrowing the inflation removed what little signal was left.
         # If active obstacle avoidance is wanted, BaseObstacle.scale is the real
         # lever; change it deliberately and on its own.
-        inflation_radius: 0.55
+        # 0.55 -> 0.45. The lethal band is set by robot_radius (0.24), so this
+        # only controls the soft gradient above it — now a 0.21 m band. Lowering
+        # it lets the controller commit to gaps that the wider halo made costly.
+        inflation_radius: 0.45
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
         enabled: True
@@ -467,7 +477,8 @@ global_costmap:
         # sets how STEEP it is. A wide radius with a steep factor is still flat
         # where it matters, so both move together or neither does.
         cost_scaling_factor: 2.0
-        inflation_radius: 0.70
+        # 0.70 -> 0.80: push planned paths a little further toward open space.
+        inflation_radius: 0.80
       always_send_full_costmap: True
 
 map_server:
