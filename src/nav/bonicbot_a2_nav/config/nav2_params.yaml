@@ -135,7 +135,18 @@ controller_server:
     controller_plugins: ["FollowPath"]
 
     progress_checker:
-      plugin: "nav2_controller::SimpleProgressChecker"
+      # PoseProgressChecker, not SimpleProgressChecker. Simple only measures
+      # TRANSLATION, so a robot rotating in place scores zero progress no matter
+      # how correctly it is behaving. That is exactly the manoeuvre required when
+      # the robot sits near a wall and the goal is behind it: it must turn before
+      # it can drive, and it cannot translate while turning without hitting the
+      # wall. Observed 2026-08-27 — three consecutive aborts at exactly 15 s each
+      # while the robot turned on the spot, 2 cm of travel in 53 seconds.
+      #
+      # Pose passes if EITHER the distance OR the angle threshold is met, so
+      # turning counts as work. A genuinely wedged robot still moves neither and
+      # is still caught, so the stuck-detection safety is unchanged.
+      plugin: "nav2_controller::PoseProgressChecker"
       # Relaxed 2026-08-25 from 0.5 m / 10.0 s. That pair demanded 0.05 m/s
       # sustained, which was 10% of the old max_vel_x (0.50) but 23% of the
       # current 0.22 — the parameter was only ever calibrated for a robot twice
@@ -150,6 +161,7 @@ controller_server:
       # 0.25 m / 15.0 s ~ 0.017 m/s average: still detects a genuinely stuck
       # robot within 15 s, without punishing a slow one for manoeuvring.
       required_movement_radius: 0.25
+      required_movement_angle: 0.5    # radians (~29 deg) — rotation now counts
       movement_time_allowance: 15.0
     
     general_goal_checker:
