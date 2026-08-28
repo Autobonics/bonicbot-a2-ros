@@ -192,10 +192,14 @@ controller_server:
       #   /cost_cloud  the cost grid DWB is scoring against
       #
       # These cost CPU while on. Turn them off once the cause is known.
-      publish_evaluation: true
-      publish_trajectories: true
-      publish_local_plan: true
-      publish_cost_grid_pc: true
+      # Left OFF. Enabling these serialises ~128 trajectories x ~50 poses at
+      # 10 Hz — one snapshot measured 20,184 lines — and visibly degraded
+      # navigation while on. Flip to true only to diagnose, off immediately
+      # after. They earned their keep once: see the Oscillation note below.
+      publish_evaluation: false
+      publish_trajectories: false
+      publish_local_plan: false
+      publish_cost_grid_pc: false
       min_vel_x: 0.0
       min_vel_y: 0.0
       # Velocity/accel model MUST stay under what the hardware can deliver, or
@@ -293,7 +297,34 @@ controller_server:
       # BaseObstacle is kept alongside it — cheap, and it still contributes the
       # soft "prefer lower cost" gradient that ObstacleFootprint (pass/fail) does
       # not provide.
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      # Oscillation REMOVED 2026-08-27, from measurement rather than theory.
+      # Two independent /evaluation snapshots taken during stalls both read:
+      #
+      #     candidates: 128   rejected: 66   accepted: 62
+      #     REJECTED BY: {'Oscillation': 66}
+      #
+      # Every rejection was Oscillation; BaseObstacle rejected nothing. That
+      # clears obstacles, robot_radius, inflation and the footprint as causes
+      # of this stall — several earlier commits chased exactly those.
+      #
+      # All 62 survivors had vtheta >= 0: turning the other way was banned
+      # outright, so the robot could only rotate one direction. It would turn,
+      # the ban would clear on oscillation_reset_angle (0.2 rad, while the
+      # robot swung ~0.98 rad), then re-latch on the opposite direction. The
+      # critic meant to stop dithering was producing it — measured as a 56
+      # degree yaw swing across 2 cm of travel over 40 s, with /cmd_vel
+      # showing linear.x pinned at 0 and angular.z flipping sign forever.
+      #
+      # It cannot be tuned out. From dwb_critics/oscillation.cpp:
+      #     if (x_only_threshold_ <= 0.0 || fabs(cmd_vel.x) <= x_only_threshold_)
+      #         theta_trend_.update(cmd_vel.theta);
+      # With vx near zero that branch always runs, and setting x_only_threshold
+      # to 0.0 makes it always run too. No value disables the theta ban while
+      # the robot is barely translating, which is precisely when it hurts.
+      #
+      # SimpleProgressChecker's 15 s allowance remains the backstop against
+      # genuine dithering.
+      critics: ["RotateToGoal", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
       # The Oscillation critic bans a direction once it sees the robot reverse
       # into it, to stop dithering. The ban lifts on oscillation_reset_dist
       # (0.05 m) or oscillation_reset_angle (0.2 rad) — and, if set, after
@@ -307,7 +338,6 @@ controller_server:
       #
       # 5.0 s gives the critic a timeout so it can still stop genuine dithering
       # without being able to trap the robot permanently.
-      Oscillation.oscillation_reset_time: 5.0
       BaseObstacle.scale: 0.02
       PathAlign.scale: 32.0
       # 0.1 -> 0.325 (nav2's default) on 2026-08-27. The alignment critics work
