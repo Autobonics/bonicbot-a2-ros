@@ -307,7 +307,31 @@ local_costmap:
       # robot is covered whatever way it is pointing — clipping cannot happen
       # geometrically, without needing the ObstacleFootprint critic and its CPU.
       # Slightly more conservative than the original 0.22.
-      robot_radius: 0.22    # matched to global_costmap; was 0.24
+      # LOCAL costmap only — global keeps robot_radius 0.22 for conservative
+      # planning. Restored to the measured polygon 2026-08-27, AFTER the switch
+      # to RPP, which changes the trade-off entirely.
+      #
+      # The polygon was dropped for a circle because the robot's edges struck
+      # walls. That was correct under DWB: its BaseObstacle critic samples only
+      # the trajectory's CENTRE point and never the robot's orientation, so a
+      # 0.114 m inscribed radius let the 0.1723 m half-width clip. RPP does not
+      # work that way — it calls footprintCostAtPose(x, y, theta, footprint),
+      # full polygon collision checking, orientation-aware, every cycle. So do
+      # the behavior_server recoveries. The reason for the circle is gone.
+      #
+      # Why it matters here: robot_radius 0.22 makes the lethal band 0.22 m, so
+      # a corridor must exceed 0.44 m for the robot's CENTRE to have any legal
+      # position — while the robot is physically 0.345 m wide. Corridors between
+      # roughly 0.35 and 0.44 m fit the robot but were declared impassable.
+      # Observed as RPP logging "detected collision ahead" at 10 Hz in a narrow
+      # passage, and behavior_server refusing even to spin in place — which for
+      # a circular footprint can only mean the robot was already inside the
+      # lethal band.
+      #
+      # 0.114 x 0.1723 half-extents: chassis_length 0.228, and wheel span
+      # (wheel_offset_y 0.14475 + wheel_thickness/2 0.0275), the wheels being
+      # the widest point rather than the body.
+      footprint: "[[0.114, 0.1723], [0.114, -0.1723], [-0.114, -0.1723], [-0.114, 0.1723]]"
       plugins: ["voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
