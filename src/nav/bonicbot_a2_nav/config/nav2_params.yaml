@@ -175,6 +175,27 @@ controller_server:
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: True
+      # ── TEMPORARY DEBUG — remove once the stall is diagnosed ──────────
+      # DWB can report exactly which trajectories it evaluated and which
+      # critic rejected each one. Enabled 2026-08-27 to settle a stall where
+      # the robot rocks in place: measured /cmd_vel shows linear.x = 0 with
+      # angular.z flipping sign indefinitely, TF shows ~2 cm of travel and a
+      # 56 deg yaw swing over 40 s, the global /plan is steady, and there is
+      # no "No valid trajectories" error — so DWB has valid options and is
+      # choosing rotation. These publishers name the critic responsible
+      # instead of leaving it to inference.
+      #
+      #   /marker      MarkerArray  — every candidate arc, visible in RViz
+      #   /evaluation  LocalPlanEvaluation — per-critic scores, and the
+      #                critic that threw out each rejected trajectory
+      #   /local_plan  the single arc actually chosen
+      #   /cost_cloud  the cost grid DWB is scoring against
+      #
+      # These cost CPU while on. Turn them off once the cause is known.
+      publish_evaluation: true
+      publish_trajectories: true
+      publish_local_plan: true
+      publish_cost_grid_pc: true
       min_vel_x: 0.0
       min_vel_y: 0.0
       # Velocity/accel model MUST stay under what the hardware can deliver, or
@@ -371,7 +392,7 @@ local_costmap:
       # robot is covered whatever way it is pointing — clipping cannot happen
       # geometrically, without needing the ObstacleFootprint critic and its CPU.
       # Slightly more conservative than the original 0.22.
-      robot_radius: 0.24
+      robot_radius: 0.22    # matched to global_costmap; was 0.24
       plugins: ["voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
