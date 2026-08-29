@@ -3,26 +3,35 @@
 
 ---
 
-> ## Status — sim verified, hardware untested
+> ## Status — hardware verified for manual control and navigation
 >
-> **Verified in simulation (2026-08-23).** Workspace builds clean; `sim.launch.py`
-> brings up Gazebo with all seven controllers active; LiDAR, `face_camera`, IMU and
-> EKF all publish; and `robot_app` (`ROBOT_SERIES=A`) adopts the stack and drives
-> mapping → map save → navigation end to end, with AMCL localizing first attempt.
-> That exercises the package restructure, the launch files, and the robot_app
-> integration.
+> **Verified on real A2 Pro hardware (2026-08-29).** The ESP32 USB CDC path is
+> exercised and working: base drive in all six directions, all 7 servos through their
+> full min/mid/max range, battery, IMU, face LED matrix, hot-unplug recovery, and
+> Nav2 navigation (SLAM and saved-map/AMCL) including near-wall and narrow-passage
+> goals. Direction was verified row-by-row against simulation using
+> **[bonicbot_a2_manual_control_reference.md](./bonicbot_a2_manual_control_reference.md)**,
+> which carries the full command matrix and the sim-vs-hardware results table.
 >
-> **The ESP32 USB CDC path has never run.** Simulation binds `gz_ros2_control` and
-> never touches it, so none of the following is verified beyond compiling:
+> Everything the previous banner listed as unverified has now been checked on hardware:
 >
-> | Item | Risk if wrong |
+> | Item | Outcome |
 > |---|---|
-> | Servo angle convention — signed degrees sent; BLE spec's 0x0A table says "0-180" while the registry's A2 limits are signed | Negative angles clamp to zero: joint parks at one end, looks like a dead servo |
-> | Servo inversion table (registry IDs 0/4/11/15/16 negated) — carried from pre-migration firmware, never re-checked | Double inversion: joint mirrors, no error raised |
-> | Encoder tick polarity/scaling after the firmware change | Odometry runs backwards or at wrong scale |
-> | `RESP_BATTERY` (0x52) over CDC — the CDC spec's channel table calls battery BLE-only | `/battery_state` silently never publishes |
+> | Servo angle convention (signed degrees on the wire) | Correct. Full signed ranges reach the servos. |
+> | Servo inversion table | `isServoInverted()` returns false for every ID — the unified firmware handles mirroring itself. The one real direction bug was in the URDF, not here: elbow axes were reversed (physical arm right, RViz mirrored) and are fixed. |
+> | Encoder polarity/scaling | Correct. `/diff_cont/odom` signs match commanded motion on all six drive tests. |
+> | `RESP_BATTERY` (0x52) over CDC | Publishes. Voltage, current and SOC are live; the rest stays at defaults. |
 >
-> Also untested on hardware: `start_session_robot.sh`, the udev rules, and Docker.
+> **Still untested:** `robot_app` on hardware (`ROBOT_SERIES=A`), the frontend
+> navigation tab end to end, `start_session_robot.sh`, and Docker. The
+> `/odom` -> `/odometry/filtered` fix in robot_app's `app/config.py` is committed but
+> has never run against the real robot.
+>
+> **Controller note:** navigation runs on `RegulatedPurePursuitController`, not DWB.
+> DWB was replaced after its own `/evaluation` output showed two failures internal to
+> it — the Oscillation critic banning an entire rotation direction, and a scoring local
+> minimum where standing still outscored driving. See the CPU/tuning notes near the end
+> of this file.
 >
 > Migration steps: **[bonicbot_a2_restructure_plan.md](./bonicbot_a2_restructure_plan.md)**.
 
@@ -257,7 +266,7 @@ repo's concern beyond the topic contract below.
 | `/cmd_vel_joy` | `geometry_msgs/Twist` | twist_mux (prio 100 — joystick always wins) |
 | `/{left,right}_arm_controller/commands` | `std_msgs/Float64MultiArray` | shoulder_pitch + elbow |
 | `/head_controller/commands` | `std_msgs/Float64MultiArray` | neck_yaw |
-| `/{left,right}_gripper_controller/commands` | `std_msgs/Float64MultiArray` | gripper finger2 |
+| `/{left,right}_gripper_controller/commands` | `std_msgs/Float64MultiArray` | gripper finger1 (driven; finger2 mimics, finger3 is the fixed jaw) |
 
 > A2 uses `position_controllers/JointGroupPositionController` (plain
 > `Float64MultiArray` on `/…/commands`). M1 uses `JointTrajectoryController` for arms
@@ -351,11 +360,17 @@ is why one app drives both:
 resolved from the series table, not hardcoded. Note `map_name` **includes the
 `.yaml` extension**.
 
-Where A2 and M1 genuinely differ, robot_app reads it from the same table:
+Where A2 and M1 genuinely differ, robot_app reads it from the same table. Note odom is
+**no longer** one of those differences: A2's entry used to be `/odom`, but nothing in this
+repo publishes that topic — `diff_cont` has `enable_odom_tf: false` and publishes
+`/diff_cont/odom`, and `ekf_node` runs with no remap so its output is
+`/odometry/filtered`. robot_app's A-series odom telemetry was therefore silently dead
+(the subscription succeeded and never fired). Corrected in `bonicOS-robot-app` commit
+`6d6fa38`; **not yet verified against real hardware**.
 
 | | A2 | M1 |
 |---|---|---|
-| odom | `/odom` | `/odometry/filtered` |
+| odom | `/odometry/filtered` | `/odometry/filtered` |
 | imu | `/imu/data` | `/esp/imu` |
 | arm commands | `Float64MultiArray` on `/…_controller/commands` | `JointTrajectory` on `/…/joint_trajectory` |
 | cameras | `face` only | `face` + `docking` (+ depth) |
@@ -556,11 +571,10 @@ ros2 launch bonicbot_a2_nav bringup.launch.py
   until `robot_app`'s WSS is confirmed to cover the same surface (map, pose, nav goals,
   joint states) for the Flutter app. Deleting it before that parity check would break the
   phone app.
-- **`robot_app` A-series servo gate** — `bonicOS-robot-app`'s `ROBOT_SERIES=A` config has
-  `controllers: {}` and `moveit: False`, so `servo_command` is feature-gated **off** for
-  A series. A2 does expose arm/head/gripper controllers, so that config needs updating
-  there (note A2's `Float64MultiArray` controllers differ from M1's trajectory
-  controllers). Cross-repo follow-up — not fixable in this repo.
+- **~~`robot_app` A-series servo gate~~ — RESOLVED.** `ROBOT_SERIES=A` now has
+  `moveit: True`, a populated `controllers` map and a `controller_joints` order matching
+  this repo's `controllers.yaml`. Arm/head/gripper commands are servable. Still untested
+  against hardware — `robot_app` has never been run on the real A2.
 - **`ekf_imu.yaml`** — an alternate EKF config (IMU as sole yaw source), present but never
   launched. Either wire it behind a launch arg or delete it.
 - **RPi4 CPU budget.** Profiled on real hardware 2026-08-25 during a live SLAM + Nav2
