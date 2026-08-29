@@ -49,8 +49,8 @@ def generate_launch_description():
             # session and no robot_app).
             #
             # MEASURED 2026-08-29 and it is NOT the lever it was assumed to be.
-            # An A/B run moved rplidar_composition from 33.3% to 29.4% — about
-            # 4 percentage points, roughly 12% of the node, not "most of it".
+            # An A/B run moved rplidar_composition from 33.3% to 27.8% — about
+            # 5.5 percentage points, roughly 17% of the node, not "most of it".
             # The rest is inherent: serial I/O at 460800 baud, scan assembly,
             # publishing. Exposed as a launch argument for measurability, but
             # trading scan geometry for 4% is not a deal worth taking. Leave

@@ -570,8 +570,9 @@ ros2 launch bonicbot_a2_nav bringup.launch.py
 - **`angle_compensate` is NOT the reserve lever — measured 2026-08-29.** This file
   previously claimed "essentially all" of the LiDAR's cost was `angle_compensate`, and
   that disabling it would reclaim most of 44%. That was an assumption written up as a
-  measurement, and an A/B run refutes it: `rplidar_composition` goes **33.3% -> 29.4%**,
-  about 4 percentage points, roughly 12% of the node. The remainder is inherent — serial
+  measurement, and an A/B run refutes it: `rplidar_composition` goes **33.3% -> 27.8%**,
+  about 5.5 percentage points, roughly 17% of the node (a first, unsettled sample
+  read 29.4%). The remainder is inherent — serial
   I/O at 460800 baud, scan assembly, publishing. It is exposed as a launch argument
   (`hardware.launch.py angle_compensate:=false`) but **is not worth spending**: trading
   the evenly-spaced scan geometry that slam_toolbox's matcher and costmap ray-tracing
