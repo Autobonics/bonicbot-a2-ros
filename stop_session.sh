@@ -53,6 +53,13 @@ PATTERNS=(
   "ros_gz_bridge|parameter_bridge|image_bridge"
   "ros2_control_node|controller_manager|spawner"
   "twist_mux"
+  # topic_tools relays (joint_states throttle). MUST be listed explicitly:
+  # the binary lives in /opt/ros/humble/lib/topic_tools/, so neither the
+  # "$WS/install" nor the "ros2 launch bonicbot_a2" pattern matches it, and a
+  # surviving throttle is invisible until you notice /joint_states_throttled
+  # running at a multiple of 10 Hz — N orphans publish N interleaved streams
+  # onto the same topic, which reads as "the throttle isn't working".
+  "topic_tools/throttle|joint_states_throttle"
   "ekf_node"
   "joy_node|teleop_node"
   "slam_toolbox|async_slam_toolbox_node"
