@@ -576,6 +576,17 @@ ros2 launch bonicbot_a2_nav bringup.launch.py
   **The real CPU thieves were off-stack:** the Antigravity IDE remote server peaked at
   **90%** of a core, and `robot_app` idles around 17%. Never benchmark this robot with an
   editor session attached — SSH from a plain terminal.
+- **The camera was running at 30 fps, not 6 — fixed 2026-08-28.** `v4l2_camera_node` has
+  **no frame-rate parameter** (`ros2 param list` shows `image_size`, `pixel_format`,
+  `output_encoding` and the V4L2 controls, nothing for timing), so the
+  `time_per_frame: [1, 6]` that sat in `camera.launch.py` was silently ignored —
+  `ros2 param get` on it answered "Parameter not set". The camera free-ran at its 30 fps
+  default and cost **105.6% of a core**, more than every Nav2 node combined, saturating
+  the Pi to 23% idle and making SSH sluggish. At the intended 6 fps the same node costs
+  **17.6%**. `camera.launch.py` now applies the rate to the DEVICE with `v4l2-ctl
+  --set-parm`, chained ahead of the node via `OnProcessExit`; the node does not override
+  it once running. Requires `v4l-utils`. Lesson worth keeping: a parameter in a launch
+  file is not evidence the node accepts it — check `ros2 param list` on the running node.
 - **`nav2_params_sim.yaml` — unused, slated for deletion.** No launch file references it:
   `navigation.launch.py` defaults `params_file` to `bonicbot_a2_nav/config/nav2_params.yaml`,
   `bringup.launch.py` never forwards `params_file`, and neither does robot_app's
