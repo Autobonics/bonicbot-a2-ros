@@ -28,6 +28,9 @@
   <exec_depend>joint_state_broadcaster</exec_depend>
   <exec_depend>position_controllers</exec_depend>
   <exec_depend>twist_mux</exec_depend>
+  <!-- throttle relay for /joint_states -> /joint_states_throttled, which is
+       what robot_app subscribes to. See hardware.launch.py. -->
+  <exec_depend>topic_tools</exec_depend>
 
   <!-- robot_description comes from the description package -->
   <exec_depend>bonicbot_a2_description</exec_depend>

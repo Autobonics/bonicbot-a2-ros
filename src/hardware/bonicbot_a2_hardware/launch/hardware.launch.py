@@ -51,6 +51,12 @@ def generate_launch_description():
         description='LiDAR scan angular resampling. False reclaims most of '
                     'rplidar_composition\'s CPU at some cost to scan geometry',
     )
+    joint_states_throttle_hz_arg = DeclareLaunchArgument(
+        'joint_states_throttle_hz', default_value='10.0',
+        description='Rate for /joint_states_throttled, which robot_app '
+                    'subscribes to instead of the raw 50 Hz /joint_states. '
+                    '0 disables the throttle node entirely',
+    )
 
     # ── robot description ────────────────────────────────────────
     # sim_mode:=false selects the ESP hardware interface in ros2_control.xacro.
@@ -115,6 +121,31 @@ def generate_launch_description():
         remappings=[('/cmd_vel_out', '/diff_cont/cmd_vel_unstamped')],
     )
 
+    # joint_state_broadcaster publishes at the controller_manager update rate
+    # (50 Hz) and that rate is not negotiable — the control loop needs it. But
+    # the only consumer above ROS is robot_app, which forwards joint angles to
+    # the dashboard's 3D robot model; the frontend's own WebRTC provider
+    # documents that it expects 10-15 Hz there. Subscribing to the raw topic
+    # meant 50 rclpy callbacks/second in Python for a 10 Hz picture, and rclpy
+    # rebuilds its waitset in Python on every one (py-spy on the real A2,
+    # 2026-08-29: the executor was the single largest CPU consumer in
+    # robot_app). This relay does the 50 Hz half in C++ and hands robot_app a
+    # tenth of the wakeups.
+    #
+    # robot_app subscribes to /joint_states_throttled — see ROBOT_CONFIG["A"]
+    # in bonicOS-robot-app/app/config.py. The two MUST agree: point robot_app
+    # at a topic nothing publishes and its joint telemetry goes silently dead,
+    # exactly the way /odom did before commit 6d6fa38.
+    joint_states_throttle = Node(
+        package='topic_tools',
+        executable='throttle',
+        name='joint_states_throttle',
+        arguments=['messages', '/joint_states',
+                   LaunchConfiguration('joint_states_throttle_hz'),
+                   '/joint_states_throttled'],
+        output='screen',
+    )
+
     # ── the other /dev/* owners ──────────────────────────────────
     rplidar = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([os.path.join(pkg_share, 'launch', 'rplidar.launch.py')]),
@@ -141,6 +172,7 @@ def generate_launch_description():
         use_lidar_arg,
         use_joystick_arg,
         angle_compensate_arg,
+        joint_states_throttle_hz_arg,
         rsp,
         controller_manager,
         spawner('diff_cont'),
@@ -150,6 +182,7 @@ def generate_launch_description():
         spawner('head_controller'),
         spawner('left_gripper_controller'),
         spawner('right_gripper_controller'),
+        joint_states_throttle,
         twist_mux,
         rplidar,
         camera,

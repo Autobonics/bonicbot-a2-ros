@@ -285,6 +285,7 @@ repo's concern beyond the topic contract below.
 | `/joint_states` | `sensor_msgs/JointState` | 50 Hz | joint_state_broadcaster (wheels + 7 servos) |
 | `/face_camera/image_raw` | `sensor_msgs/Image` | ~6 fps | CSI head camera (v4l2) |
 | `/odometry/filtered` | `nav_msgs/Odometry` | 10 Hz | EKF — owns `odom→base_link` TF |
+| `/battery_state` | `sensor_msgs/BatteryState` | on `RESP_BATTERY` | ESP battery (`percentage` is 0..1; the frame's SOC is 0-100) |
 
 > A2 publishes IMU on **`/imu/data`**, not M1's `/esp/imu` — matches `robot_app`'s
 > existing A-series topic config and `ekf.yaml`'s `imu0`.
@@ -673,12 +674,17 @@ ros2 launch bonicbot_a2_nav bringup.launch.py
   files that must stay in sync. Kept for now only as a record of the faster tuning; delete
   it once nobody wants that profile back. The only other mention is
   `reference/robot_manager.py:532`, which is out of the build.
-- **`/battery_state`** — `RESP_BATTERY` (0x52) carries voltage, current and SOC%, so the
-  data exists; nothing publishes the topic yet. Add a `sensor_msgs/BatteryState` publisher
-  in `esp_hardware_interface.cpp`. The frame's trailing `active servo count + online IDs`
-  is also a free health check — a fitted servo dropping off the bus becomes detectable.
-  Confirm the firmware emits 0x52 over CDC (the CDC spec's channel table lists battery as
-  BLE-only, predating the unified firmware).
+- **~~`/battery_state`~~ — DONE.** `esp_hardware_interface.cpp` creates the
+  `sensor_msgs/BatteryState` publisher and publishes voltage, current and SOC (as
+  `percentage`, 0..1 — `RESP_BATTERY` reports 0-100, so it is divided on the way out).
+  The firmware does emit 0x52 over CDC, contrary to the CDC spec's channel table, which
+  lists battery as BLE-only and predates the unified firmware.
+  Still unused: the frame's trailing `active servo count + online IDs`, which is a free
+  health check — a fitted servo dropping off the bus would become detectable.
+  **robot_app subscribes to `/battery_state` and broadcasts a `battery` telemetry event;
+  the BonicAI frontend does not yet render it over the WebRTC lane** (its battery UI is
+  fed from the BLE path). Surfacing it in the robot UI is a frontend task, not a
+  robot-side one — the data is already on the wire.
 - **Orchestration gap during migration** — `robot_manager.py` and `robot_agent.py` leave
   this repo (see below), but `robot_app` does not yet implement every service they
   provided: the precise-move queue, patrol/waypoint following, the named-location store,
