@@ -48,9 +48,13 @@ def generate_launch_description():
             # the Pi still has headroom (53% idle with the full stack, no IDE
             # session and no robot_app).
             #
-            # THIS IS THE LEVER TO PULL IF CPU BECOMES THE BINDING CONSTRAINT
-            # again — setting it False reclaims most of that 44%. Measure map
-            # quality before and after; do not flip it blind.
+            # MEASURED 2026-08-29 and it is NOT the lever it was assumed to be.
+            # An A/B run moved rplidar_composition from 33.3% to 29.4% — about
+            # 4 percentage points, roughly 12% of the node, not "most of it".
+            # The rest is inherent: serial I/O at 460800 baud, scan assembly,
+            # publishing. Exposed as a launch argument for measurability, but
+            # trading scan geometry for 4% is not a deal worth taking. Leave
+            # it true unless something changes.
             'angle_compensate': LaunchConfiguration('angle_compensate'),
             'scan_mode': 'Standard',
             'use_sim_time': LaunchConfiguration('use_sim_time'),
