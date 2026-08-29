@@ -35,6 +35,11 @@
   <!-- other /dev/* owners -->
   <exec_depend>rplidar_ros</exec_depend>
   <exec_depend>v4l2_camera</exec_depend>
+  <!-- camera.launch.py shells out to v4l2-ctl to set the capture frame rate:
+       v4l2_camera_node has no parameter for it, so the rate must be applied to
+       the device directly. Without this the camera free-runs at 30 fps and
+       costs 105% of a core instead of 17%. -->
+  <exec_depend>v4l-utils</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

@@ -227,6 +227,34 @@ Two means `slam_toolbox` and `amcl` are both running — check the `slam` arg.
 (IMX708)**, it is libcamera-only and will never appear as a v4l2 device. `v4l2_camera`
 needs Module 2 (IMX219).
 
+**Camera won't start, or the whole Pi bogs down** — `camera.launch.py` needs `v4l-utils`:
+
+```bash
+sudo apt install -y v4l-utils
+```
+
+It shells out to `v4l2-ctl --set-parm` to set the capture rate, because
+`v4l2_camera_node` has **no frame-rate parameter** — `ros2 param list` on it shows
+`image_size`, `pixel_format`, `output_encoding` and the V4L2 controls, and nothing for
+timing. Without this the camera free-runs at its 30 fps default and costs **105% of a
+core** instead of 17%, which saturates the RPi4 and makes even SSH sluggish. Verify with:
+
+```bash
+timeout 10 ros2 topic hz /face_camera/image_raw   # expect ~6, not 30
+```
+
+**SSH freezes while `top` shows the Pi idle** — that is the network, not the CPU. Raw
+camera frames are ~5.5 MB/s, and if `ROS_LOCALHOST_ONLY` is unset, DDS pushes them over
+WiFi to every subscriber on the network. An RViz session on another machine will do it:
+
+```bash
+echo "ROS_LOCALHOST_ONLY=$ROS_LOCALHOST_ONLY"   # should be 1 on the robot
+```
+
+Set it to `1` for robot-only operation. If you genuinely need RViz from a dev machine,
+leave it unset but subscribe to `/face_camera/image_raw/compressed` rather than
+`image_raw` — roughly 50x less data over the link.
+
 ---
 
 *BonicBot A2 — Autobonics Pvt Ltd. Confidential and proprietary.*
