@@ -43,6 +43,14 @@ def generate_launch_description():
         'use_joystick', default_value='true',
         description='Start joystick teleop on the high-priority twist_mux lane',
     )
+    # Forwarded to rplidar.launch.py so the LiDAR's dominant CPU cost can be
+    # toggled from the top-level launch without editing files. See the note on
+    # the parameter in rplidar.launch.py before setting this false.
+    angle_compensate_arg = DeclareLaunchArgument(
+        'angle_compensate', default_value='true',
+        description='LiDAR scan angular resampling. False reclaims most of '
+                    'rplidar_composition\'s CPU at some cost to scan geometry',
+    )
 
     # ── robot description ────────────────────────────────────────
     # sim_mode:=false selects the ESP hardware interface in ros2_control.xacro.
@@ -110,6 +118,9 @@ def generate_launch_description():
     # ── the other /dev/* owners ──────────────────────────────────
     rplidar = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([os.path.join(pkg_share, 'launch', 'rplidar.launch.py')]),
+        launch_arguments={
+            'angle_compensate': LaunchConfiguration('angle_compensate'),
+        }.items(),
         condition=IfCondition(LaunchConfiguration('use_lidar')),
     )
 
@@ -129,6 +140,7 @@ def generate_launch_description():
         use_camera_arg,
         use_lidar_arg,
         use_joystick_arg,
+        angle_compensate_arg,
         rsp,
         controller_manager,
         spawner('diff_cont'),

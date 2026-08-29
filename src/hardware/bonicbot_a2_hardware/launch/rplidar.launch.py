@@ -20,6 +20,12 @@ def generate_launch_description():
         'use_sim_time', default_value='false',
         description='Use simulation clock',
     )
+    angle_compensate_arg = DeclareLaunchArgument(
+        'angle_compensate', default_value='true',
+        description='Resample scans into evenly-spaced angular bins. '
+                    'True is better for SLAM; false reclaims most of this '
+                    'node\'s CPU. See the note on the parameter below.',
+    )
 
     rplidar = Node(
         package='rplidar_ros',
@@ -45,7 +51,7 @@ def generate_launch_description():
             # THIS IS THE LEVER TO PULL IF CPU BECOMES THE BINDING CONSTRAINT
             # again — setting it False reclaims most of that 44%. Measure map
             # quality before and after; do not flip it blind.
-            'angle_compensate': True,
+            'angle_compensate': LaunchConfiguration('angle_compensate'),
             'scan_mode': 'Standard',
             'use_sim_time': LaunchConfiguration('use_sim_time'),
         }],
@@ -54,5 +60,6 @@ def generate_launch_description():
     return LaunchDescription([
         serial_port_arg,
         use_sim_time_arg,
+        angle_compensate_arg,
         rplidar,
     ])
