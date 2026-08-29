@@ -72,6 +72,22 @@ def generate_launch_description():
             # Frame rate is NOT set here — see set_frame_rate above. This node
             # has no parameter for it and silently ignored the one that used
             # to be in this block.
+            # Publish the sensor's native format instead of converting. The
+            # node was logging "Image encoding not the same as requested
+            # output, performing possibly slow conversion: yuv422_yuy2 =>
+            # rgb8" on every frame — output_encoding defaults to rgb8 while
+            # this camera delivers YUYV.
+            #
+            # Two savings: the per-frame software conversion disappears, and
+            # the message shrinks by a third (2 bytes/pixel rather than 3), so
+            # 640x480 at 6 fps drops from ~5.5 MB/s to ~3.7 MB/s. The second
+            # matters beyond CPU — with ROS_LOCALHOST_ONLY unset, DDS pushes
+            # raw frames over WiFi and that link is shared with SSH.
+            #
+            # vision_pipeline.py is unaffected: it asks cv_bridge for
+            # desired_encoding='bgr8', so the conversion simply moves there and
+            # only runs when vision is actually up.
+            'output_encoding': 'yuv422_yuy2',
             'camera_name': 'face_camera',
             'camera_frame_id': 'face_camera_link_optical',
             'use_sim_time': LaunchConfiguration('use_sim_time'),
