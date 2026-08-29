@@ -48,13 +48,20 @@ def generate_launch_description():
             # the Pi still has headroom (53% idle with the full stack, no IDE
             # session and no robot_app).
             #
-            # MEASURED 2026-08-29 and it is NOT the lever it was assumed to be.
-            # An A/B run moved rplidar_composition from 33.3% to 27.8% — about
-            # 5.5 percentage points, roughly 17% of the node, not "most of it".
-            # The rest is inherent: serial I/O at 460800 baud, scan assembly,
-            # publishing. Exposed as a launch argument for measurability, but
-            # trading scan geometry for 4% is not a deal worth taking. Leave
-            # it true unless something changes.
+            # MEASURED 2026-08-29: this is not a CPU lever at all. A valid A/B
+            # (parameter verified via `ros2 param get /rplidar
+            # angle_compensate`, camera off in both runs) gave 35.3% / 23.5%
+            # with it on and 27.8% / 33.3% with it off — ranges that overlap
+            # completely, so run-to-run variance exceeds any difference.
+            #
+            # The cost of turning it off, by contrast, is immediate:
+            # slam_toolbox logs "LaserRangeScan contains 508 range readings,
+            # expected 512" on nearly every scan, counts varying 502-511,
+            # because the raw revolution is no longer resampled into fixed
+            # evenly-spaced bins.
+            #
+            # LEAVE IT TRUE. The launch argument exists so the trade can be
+            # re-measured, not because it is worth taking.
             'angle_compensate': LaunchConfiguration('angle_compensate'),
             'scan_mode': 'Standard',
             'use_sim_time': LaunchConfiguration('use_sim_time'),

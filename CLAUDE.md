@@ -567,16 +567,29 @@ ros2 launch bonicbot_a2_nav bringup.launch.py
   session. With the IDE remote server closed and `robot_app` stopped, the full stack
   leaves **53% idle**; `rplidar_composition` is the largest single consumer at **~33-44%
   of a core**, ahead of every Nav2 node.
-- **`angle_compensate` is NOT the reserve lever — measured 2026-08-29.** This file
-  previously claimed "essentially all" of the LiDAR's cost was `angle_compensate`, and
-  that disabling it would reclaim most of 44%. That was an assumption written up as a
-  measurement, and an A/B run refutes it: `rplidar_composition` goes **33.3% -> 27.8%**,
-  about 5.5 percentage points, roughly 17% of the node (a first, unsettled sample
-  read 29.4%). The remainder is inherent — serial
-  I/O at 460800 baud, scan assembly, publishing. It is exposed as a launch argument
-  (`hardware.launch.py angle_compensate:=false`) but **is not worth spending**: trading
-  the evenly-spaced scan geometry that slam_toolbox's matcher and costmap ray-tracing
-  both assume, for 4%, is a bad deal. Two things that were *not* the problem
+- **`angle_compensate` is NOT a CPU lever at all — properly measured 2026-08-29.** This
+  file previously claimed "essentially all" of the LiDAR's cost was `angle_compensate`.
+  That was an assumption written up as a measurement. A first attempt to correct it
+  reported 17%, but that comparison was invalid — both runs had the flag on (the launch
+  argument had not been pulled) and one had the camera running.
+  A valid A/B, with `ros2 param get /rplidar angle_compensate` verified True then False
+  and the camera off in both:
+
+  | | `rplidar_composition` |
+  |---|---|
+  | `angle_compensate: true` | 35.3%, 23.5% |
+  | `angle_compensate: false` | 27.8%, 33.3% |
+
+  **The ranges overlap completely** — run-to-run variance exceeds any difference between
+  conditions, so there is no detectable saving. The cost, however, is immediate and
+  visible: with it off, slam_toolbox logs `LaserRangeScan contains 508 range readings,
+  expected 512` on essentially every scan, counts varying 502-511, because the raw
+  revolution is no longer resampled into fixed evenly-spaced bins.
+  **Leave it true.** It is exposed as a launch argument
+  (`hardware.launch.py angle_compensate:=false`) for measurability only.
+- **Where the CPU actually went:** the camera, not the LiDAR. `v4l2_camera_node` was
+  running at 30 fps instead of 6 and cost **105% of a core**; fixing that took it to
+  17.6%. See the camera note above. Two things that were *not* the problem
   and had already been trimmed by then: `ekf.yaml` (15 Hz → 10 Hz) and slam_toolbox
   (`throttle_scans` 1 → 2, `transform_publish_period` 50 Hz → 20 Hz), both now ~5-11%.
   **The real CPU thieves were off-stack:** the Antigravity IDE remote server peaked at
