@@ -3,7 +3,7 @@
 
 ---
 
-> ## Status — hardware verified for manual control and navigation
+> ## Status — hardware verified for manual control, navigation, and robot_app
 >
 > **Verified on real A2 Pro hardware (2026-08-29).** The ESP32 USB CDC path is
 > exercised and working: base drive in all six directions, all 7 servos through their
@@ -22,10 +22,41 @@
 > | Encoder polarity/scaling | Correct. `/diff_cont/odom` signs match commanded motion on all six drive tests. |
 > | `RESP_BATTERY` (0x52) over CDC | Publishes. Voltage, current and SOC are live; the rest stays at defaults. |
 >
-> **Still untested:** `robot_app` on hardware (`ROBOT_SERIES=A`), the frontend
-> navigation tab end to end, `start_session_robot.sh`, and Docker. The
-> `/odom` -> `/odometry/filtered` fix in robot_app's `app/config.py` is committed but
-> has never run against the real robot.
+> **`robot_app` now runs on this hardware (2026-08-29).** `start_session_robot.sh`
+> brings the base stack up, `robot_app` adopts it, and the frontend navigation tab
+> drives and maps end to end: WebRTC peer connects, teleop moves the base (deadman
+> zeroes `cmd_vel` on frame loss as designed), mapping mode starts `slam_toolbox`
+> from the UI, and `/map` publishes at a steady 0.5 Hz. The
+> `/odom` -> `/odometry/filtered` fix is **verified** — `/odometry/filtered`
+> publishes at ~10 Hz on the real robot.
+>
+> Getting there took four `robot_app` fixes, all in `bonicOS-robot-app`, none in
+> this repo — the hardware/nav split here was right and robot_app assumed a shape
+> it does not have:
+>
+> | Bug | Fix |
+> |---|---|
+> | `BaseSessionManager` self-started `<nav_pkg> bringup.launch.py` and then health-checked for `robot_state_publisher` + `controller_manager`. That pair is the **`sim.launch.py` signature** — in Gazebo one launch file is the whole base stack. Here it is two, and `bringup.launch.py` owns no hardware, so the gate could never pass on a real robot. | `base_autostart` now defaults true in sim, **false on real hardware**. The operator (`start_session_robot.sh`) owns the base stack; robot_app adopts. |
+> | The failed self-start rolled back through `BASE_SWEEP_CMD` = `stop_session.sh` — a `pkill -f` that cannot tell robot_app's own spawn from a live stack. It killed `controller_manager`, `robot_state_publisher`, the lidar and the camera on every boot. | The health-gate rollback no longer sweeps. It killed its own process group already; anything else matching belongs to someone else. |
+> | `install-service.sh` wrote `ROS_LOCALHOST_ONLY=${ROS_LOCALHOST_ONLY:-1}`, but ROS's own `setup.bash` exports `0` when unset — so the fallback never fired and the installer captured the shell's `0`. robot_app sat on a different discovery scope than the stack (which pins `1`) and a freshly-started robot_app **could not see an already-running base stack at all**, reporting `base_nodes_missing` indefinitely while `ros2 node list` showed both nodes. | Pinned to `1` in the generated env file. Keep `export ROS_LOCALHOST_ONLY=1` in your shell too, or every `ros2` CLI reading is on the wrong scope and will lie to you. |
+> | `NavModeManager._teardown()` killed only the process handle robot_app was holding, returning silently when it had none. But a nav session **outlives a robot_app restart by design** (unit is `KillMode=process`, sessions are `setsid`'d), so after a restart the handle is gone while the session runs on. `resume_from_disk` then spawned a second one: **two complete Nav2 stacks, two owners of `map->odom`** — the exact invariant that module exists to protect. Load average went 7.8 → 21.4. | `NavModeManager` got the graph-based detection `BaseSessionManager` already had: `detect_mode()` reads `amcl`/`slam_toolbox` from the graph, `resume_from_disk` **adopts** instead of relaunching, and `_switch`/`stop` refuse rather than stack a second owner. |
+>
+> **Saved-map navigation has run** (`navigation.launch.py` + AMCL + pose seeding,
+> map `classroom_test`), but not cleanly — see the CPU note below. Goals failed two
+> ways: `off the global costmap` (goals outside the mapped area — a UI/operator
+> issue, planning there can never succeed) and TF-lag failures downstream of a
+> starved EKF.
+>
+> **Under sustained load the Pi runs out of CPU.** After ~4 h with SLAM/Nav2 +
+> camera + robot_app, load average sat at 7.8–9.0 on 4 cores (22% idle) with
+> `robot_app` itself at 60–90% — against the ~17% idle this file documents. The
+> consequence chain is worth recognising: `ekf_node` logs `Failed to meet update
+> rate` (0.10–0.28 s against a 0.1 s budget) → `odom->base_link` publishes late →
+> `amcl` logs `Lookup would require extrapolation into the future` →
+> `controller_server: Failed to make progress`. **Not thermal** — `vcgencmd
+> get_throttled` was `0x0`. robot_app's own share is not yet explained.
+>
+> **Still untested:** `robot_app` on the Gazebo sim, and Docker.
 >
 > **Controller note:** navigation runs on `RegulatedPurePursuitController`, not DWB.
 > DWB was replaced after its own `/evaluation` output showed two failures internal to
@@ -253,7 +284,7 @@ repo's concern beyond the topic contract below.
 | `/diff_cont/odom` | `nav_msgs/Odometry` | 50 Hz | diff_drive_controller (ESP encoders) |
 | `/joint_states` | `sensor_msgs/JointState` | 50 Hz | joint_state_broadcaster (wheels + 7 servos) |
 | `/face_camera/image_raw` | `sensor_msgs/Image` | ~6 fps | CSI head camera (v4l2) |
-| `/odometry/filtered` | `nav_msgs/Odometry` | 15 Hz | EKF — owns `odom→base_link` TF |
+| `/odometry/filtered` | `nav_msgs/Odometry` | 10 Hz | EKF — owns `odom→base_link` TF |
 
 > A2 publishes IMU on **`/imu/data`**, not M1's `/esp/imu` — matches `robot_app`'s
 > existing A-series topic config and `ekf.yaml`'s `imu0`.
@@ -347,6 +378,13 @@ small launch-file contract.
 stack (hardware + rsp + EKF); robot_app is a separate persistent service that
 adopts whatever session it finds and re-attaches if one starts later.
 
+On a real robot robot_app **never starts the base stack itself** — `base_autostart`
+is false off-sim. It cannot: the base stack here is two launches (hardware +
+nav bringup) and `BaseSessionManager` spawns one. If nothing is running it logs
+`no base stack running and autostart is off — staying down` and waits for its
+health poll to find one. In sim it does self-start, because there
+`sim.launch.py` genuinely is the whole base stack.
+
 **The launch contract robot_app depends on** — identical for A2 and M1, which
 is why one app drives both:
 
@@ -354,7 +392,7 @@ is why one app drives both:
 |---|---|
 | `<nav_pkg> mapping.launch.py use_sim_time:=…` | composite: slam_toolbox + Nav2 core (`slam:=true`) |
 | `<nav_pkg> navigation.launch.py slam:=false maps_dir:=… map_name:=<name>.yaml` | map_server + AMCL + Nav2 core |
-| base: `<nav_pkg> bringup.launch.py` / `<sim_pkg> sim.launch.py` | rsp + EKF / Gazebo |
+| base, **sim only**: `<sim_pkg> sim.launch.py` | Gazebo + rsp + controllers — the whole base stack in one file |
 
 `<nav_pkg>` is `bonicbot_a2_nav` for series A and `bonicbot_m1_nav` for M —
 resolved from the series table, not hardcoded. Note `map_name` **includes the
@@ -366,7 +404,8 @@ repo publishes that topic — `diff_cont` has `enable_odom_tf: false` and publis
 `/diff_cont/odom`, and `ekf_node` runs with no remap so its output is
 `/odometry/filtered`. robot_app's A-series odom telemetry was therefore silently dead
 (the subscription succeeded and never fired). Corrected in `bonicOS-robot-app` commit
-`6d6fa38`; **not yet verified against real hardware**.
+`6d6fa38`; **verified on real hardware 2026-08-29** — `/odometry/filtered` publishes
+at ~10 Hz and robot_app's odom telemetry is live.
 
 | | A2 | M1 |
 |---|---|---|
@@ -573,8 +612,9 @@ ros2 launch bonicbot_a2_nav bringup.launch.py
   phone app.
 - **~~`robot_app` A-series servo gate~~ — RESOLVED.** `ROBOT_SERIES=A` now has
   `moveit: True`, a populated `controllers` map and a `controller_joints` order matching
-  this repo's `controllers.yaml`. Arm/head/gripper commands are servable. Still untested
-  against hardware — `robot_app` has never been run on the real A2.
+  this repo's `controllers.yaml`. Arm/head/gripper commands are servable. `robot_app`
+  now runs on the real A2 (2026-08-29), but only drive and mapping were exercised —
+  **arm/head/gripper commands through robot_app are still untested on hardware.**
 - **`ekf_imu.yaml`** — an alternate EKF config (IMU as sole yaw source), present but never
   launched. Either wire it behind a launch arg or delete it.
 - **RPi4 CPU budget.** Profiled on real hardware 2026-08-25 during a live SLAM + Nav2
