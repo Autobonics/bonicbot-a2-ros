@@ -72,22 +72,27 @@ def generate_launch_description():
             # Frame rate is NOT set here — see set_frame_rate above. This node
             # has no parameter for it and silently ignored the one that used
             # to be in this block.
-            # Publish the sensor's native format instead of converting. The
-            # node was logging "Image encoding not the same as requested
-            # output, performing possibly slow conversion: yuv422_yuy2 =>
-            # rgb8" on every frame — output_encoding defaults to rgb8 while
-            # this camera delivers YUYV.
+            # DO NOT set output_encoding: 'yuv422_yuy2' on this build.
             #
-            # Two savings: the per-frame software conversion disappears, and
-            # the message shrinks by a third (2 bytes/pixel rather than 3), so
-            # 640x480 at 6 fps drops from ~5.5 MB/s to ~3.7 MB/s. The second
-            # matters beyond CPU — with ROS_LOCALHOST_ONLY unset, DDS pushes
-            # raw frames over WiFi and that link is shared with SSH.
+            # It looks attractive — the node logs "Image encoding not the same
+            # as requested output, performing possibly slow conversion:
+            # yuv422_yuy2 => rgb8" on every frame, and publishing natively
+            # would skip that and shrink messages by a third (2 bytes/pixel
+            # rather than 3). Tried 2026-08-29 and it produces MALFORMED
+            # messages: the encoding field reads yuv422_yuy2 correctly, but
+            # `step` is published as 640 where 640-wide YUYV requires 1280.
             #
-            # vision_pipeline.py is unaffected: it asks cv_bridge for
-            # desired_encoding='bgr8', so the conversion simply moves there and
-            # only runs when vision is actually up.
-            'output_encoding': 'yuv422_yuy2',
+            #   rqt_image_view: "Image is wrongly formed: step < width *
+            #   byte_depth * num_channels or 640 != 640 * 1 * 2"
+            #
+            # rqt shows grey and refuses the frame; RViz reads past the end of
+            # the buffer and SEGFAULTS — adding an Image display closes it
+            # instantly. /face_camera/image_raw/compressed still publishes at
+            # 6 Hz, so the topic looks healthy and the payload is not.
+            #
+            # The rgb8 conversion stays. It is not free, but the camera is
+            # already down to 17.6% of a core after the frame-rate fix, and
+            # that conversion is a small part of what remains.
             'camera_name': 'face_camera',
             'camera_frame_id': 'face_camera_link_optical',
             'use_sim_time': LaunchConfiguration('use_sim_time'),
