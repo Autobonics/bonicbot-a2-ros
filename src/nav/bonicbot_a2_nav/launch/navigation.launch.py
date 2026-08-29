@@ -67,6 +67,26 @@ def generate_launch_description():
         LaunchConfiguration('map_name'),
     ])
 
+    # Nav2's bond heartbeat defaults to 4.0 s: if a managed server misses it,
+    # lifecycle_manager declares that server DOWN and tears the whole group
+    # down with it. On an RPi4 running SLAM/Nav2 + camera + robot_app that is
+    # far too tight — the box sits near 22% idle at load ~9, and a node simply
+    # not scheduled for four seconds is not a crashed node. Observed on
+    # hardware 2026-08-29:
+    #
+    #   CRITICAL FAILURE: SERVER map_server IS DOWN after not receiving a
+    #   heartbeat for 4000 ms. Shutting down related nodes.
+    #
+    # map_server was healthy; it was starved. AMCL was deactivated with it, so
+    # map->odom stopped, the `map` frame vanished, and everything above blamed
+    # localization: "Waiting for map...", no pose, and load_map service calls
+    # timing out because map_server was no longer active.
+    #
+    # 20 s is tolerant of scheduling stalls while still catching a genuinely
+    # dead server. NOT 0.0, which disables the check altogether and would hide
+    # a real crash.
+    bond_timeout = 20.0
+
     # ── localization: ONLY when slam:=false ──────────────────────
     localization = GroupAction(
         condition=UnlessCondition(slam),
@@ -94,6 +114,7 @@ def generate_launch_description():
                 parameters=[{
                     'use_sim_time': use_sim_time,
                     'autostart': autostart,
+                    'bond_timeout': bond_timeout,
                     'node_names': ['map_server', 'amcl'],
                 }],
             ),
@@ -136,6 +157,7 @@ def generate_launch_description():
             parameters=[{
                 'use_sim_time': use_sim_time,
                 'autostart': autostart,
+                'bond_timeout': bond_timeout,
                 'node_names': [name for _, _, name, _ in nav2_nodes],
             }],
         ),

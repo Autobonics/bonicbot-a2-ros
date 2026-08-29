@@ -54,7 +54,21 @@
 > rate` (0.10–0.28 s against a 0.1 s budget) → `odom->base_link` publishes late →
 > `amcl` logs `Lookup would require extrapolation into the future` →
 > `controller_server: Failed to make progress`. **Not thermal** — `vcgencmd
-> get_throttled` was `0x0`. robot_app's own share is not yet explained.
+> get_throttled` was `0x0`. robot_app's share is now explained: about half of it is
+> rclpy executor spin, not robot_app's own callbacks — see the CPU notes near the
+> end of this file, including the two "optimizations" that measurably did nothing.
+>
+> **robot_app now self-heals a base stack restart it did not perform.** Running
+> `stop_session.sh` + `start_session_robot.sh` by hand used to leave it permanently
+> poseless — three separate bugs in one chain, all fixed 2026-08-29: its TF buffer
+> was never rebuilt, its nav session was never restored (so no AMCL, no `map`
+> frame), and the externally-killed session was recorded as "the operator went
+> idle", which silently disabled the restore. None of it was findable until
+> `_poll_pose` stopped swallowing its TF exception in silence — the log line
+> naming `LookupException` vs `ExtrapolationException` is what separated "stale
+> buffer" from "no AMCL at all". Verified end to end: `base stack reappeared` →
+> `restoring the nav session` → `resuming navigation on saved map` → `localized` →
+> `map -> base_footprint resolved again`, in ~23 s with no robot_app restart.
 >
 > **Still untested:** `robot_app` on the Gazebo sim, and Docker.
 >
@@ -648,8 +662,28 @@ ros2 launch bonicbot_a2_nav bringup.launch.py
   and had already been trimmed by then: `ekf.yaml` (15 Hz → 10 Hz) and slam_toolbox
   (`throttle_scans` 1 → 2, `transform_publish_period` 50 Hz → 20 Hz), both now ~5-11%.
   **The real CPU thieves were off-stack:** the Antigravity IDE remote server peaked at
-  **90%** of a core, and `robot_app` idles around 17%. Never benchmark this robot with an
-  editor session attached — SSH from a plain terminal.
+  **90%** of a core. Never benchmark this robot with an editor session attached — SSH
+  from a plain terminal.
+- **`robot_app` costs ~80% of a core, not the "~17%" this file used to claim.**
+  That 17% was measured with `robot_app` **stopped** — it was never a like-for-like
+  figure. Profiled properly with `py-spy` on 2026-08-29, with a nav session up and
+  a peer connected, `robot_app` sits at **80-94%** of a core and the Pi at ~22% idle.
+  Roughly half of that is not robot_app's own work at all: rclpy's
+  `_wait_for_ready_callbacks` rebuilds its waitset **in Python** on every iteration
+  of every executor thread, showing 36-47% own time with GIL contention at 43-68%.
+- **Two "optimizations" that measurably did NOT help — do not redo them.** Both are
+  correct changes and worth keeping for other reasons; neither reduced total CPU:
+  | change | effect on robot_app CPU |
+  |---|---|
+  | Idling the WebRTC camera encoder when no one is watching | none (still ~85%). Encoder work fell from ~32% to ~11% in the profile, and the executor simply spun into the gap. Keeps WiFi bandwidth down, so still worth having. |
+  | Throttling `/joint_states` 50 Hz → 10 Hz into robot_app | none. Removed ~40 callbacks/sec and total CPU did not move. |
+  | `MultiThreadedExecutor(num_threads=2)` instead of the default 4 | **~10 points** (94% → 80%), reproduced three times. The only lever that worked. |
+
+  The reason the first two fail is the same: `_wait_for_ready_callbacks` is a **spin
+  loop**, so it absorbs whatever you free up. Cutting message volume or encoder work
+  just gives it more room to spin. Only reducing the number of spinners helped.
+  Further gains are architectural (fewer subscriptions, or an `rclcpp` bridge), not
+  configuration.
 - **The camera was running at 30 fps, not 6 — fixed 2026-08-28.** `v4l2_camera_node` has
   **no frame-rate parameter** (`ros2 param list` shows `image_size`, `pixel_format`,
   `output_encoding` and the V4L2 controls, nothing for timing), so the
