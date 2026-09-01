@@ -318,12 +318,45 @@ repo's concern beyond the topic contract below.
 > `Float64MultiArray` on `/…/commands`). M1 uses `JointTrajectoryController` for arms
 > (`JointTrajectory` with timing). Do not copy M1's arm-command code onto A2 unchanged.
 
-### Wi-Fi relay (`/esp/*`) — new, target only
+### Wi-Fi relay (`/esp/*`) — verified end to end on hardware 2026-09-01
 
 | Topic | Type | Direction |
 |---|---|---|
 | `/esp/wifi_credentials` | `std_msgs/String` | `esp_hardware_interface` → robot_app (runs `nmcli`) |
-| `/esp/wifi_status` | `std_msgs/String` | robot_app → `esp_hardware_interface` → `CMD_WIFI_STATUS` reply |
+| `/esp/wifi_status` | `std_msgs/String` | robot_app → `esp_hardware_interface` → ESP → BLE notify |
+
+**Wire formats — both are fixed, and getting either wrong fails silently:**
+
+- **Inbound** (`CMD_WIFI_CONFIG` 0x0B): the ESP forwards its `WifiConfigPayload`
+  struct **verbatim** — `char ssid[32]` then `char password[64]`, null-PADDED at
+  fixed offsets, 96 bytes. `handleWifiConfig()` must read offsets 0 and 32; the
+  original null-SEPARATOR scan read the ssid correctly and then hit the zero
+  padding immediately after it, yielding an **empty password** and an `nmcli`
+  join that could never authenticate. Republished on the topic as
+  `"ssid\npassword"` (what `ros_bridge.py` splits on).
+- **Outbound** (`/esp/wifi_status`): `"state,ssid,rssi,ip"` — exactly 4
+  comma-separated fields. `state` is a **tri-state** (0 idle/failed,
+  1 connected, 2 connecting), NOT a bool; collapsing it to 0/1 here drops the
+  "connecting" state robot_app sends the moment credentials arrive, which is
+  what lets the tablet show progress during the ~15 s join.
+
+**Status is pushed, not just polled.** A fresh `/esp/wifi_status` sets
+`wifi_status_push_pending_`, and `write()` sends it on the control thread — the
+ESP relays any payload-carrying `CMD_WIFI_STATUS` straight out as a BLE notify,
+so a completed join (and the robot's new IP) reaches the phone unprompted. The
+flag/drain split exists because **only the control thread may touch `/dev/esp`**;
+the subscription callback runs on the spin thread and must never write.
+
+**The cache is zero-filled on every `on_configure()`.** So after a stack restart
+the tablet reads "disconnected, no SSID, no IP" until something republishes —
+which is why `robot_app` republishes every 30 s rather than only on change.
+
+> **Provisioning needs a polkit grant on bare-metal robots.** `robot_app` runs as
+> a `systemd --user` service with no seat, so NetworkManager refuses its scans and
+> connects with `Not authorized to control networking.` — surfacing as `nmcli`
+> exit 4 (connect refused) and exit 10 (scan refused ⇒ stale cache ⇒ "no such
+> AP"). Containerised robots run it as root and never hit this. See
+> `bonicOS-robot-app/OVERVIEW.md` §Wi-Fi Provisioning.
 
 ---
 
