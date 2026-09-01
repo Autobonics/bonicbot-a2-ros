@@ -1040,20 +1040,40 @@ void EspHardwareInterface::processBattery(const uint8_t * payload, uint16_t leng
 
 void EspHardwareInterface::handleWifiConfig(const uint8_t * payload, uint16_t length)
 {
-  if (length == 0 || !wifi_credentials_publisher_) {
+  // The ESP forwards its fixed `WifiConfigPayload` struct verbatim
+  // (firmware include/protocol_defs.h): char ssid[32] then char password[64],
+  // each null-PADDED at a fixed offset — NOT null-SEPARATED. Scanning for a
+  // separator instead read the ssid correctly and then hit the zero padding
+  // immediately after it, yielding an empty password and an nmcli join that
+  // could never authenticate.
+  constexpr size_t kSsidOffset = 0;
+  constexpr size_t kSsidLen = 32;
+  constexpr size_t kPasswordOffset = kSsidOffset + kSsidLen;
+  constexpr size_t kPasswordLen = 64;
+
+  if (!wifi_credentials_publisher_) {
     return;
   }
 
-  // Firmware packs SSID and password null-separated in one buffer.
-  std::string ssid;
-  std::string password;
-  size_t i = 0;
-  while (i < length && payload[i] != '\0') {
-    ssid.push_back(static_cast<char>(payload[i++]));
+  if (length < kPasswordOffset + kPasswordLen) {
+    RCLCPP_WARN(
+      rclcpp::get_logger(kLogger),
+      "CMD_WIFI_CONFIG payload is %u B; expected %zu B — ignoring",
+      length, kPasswordOffset + kPasswordLen);
+    return;
   }
-  i++;   // skip separator
-  while (i < length && payload[i] != '\0') {
-    password.push_back(static_cast<char>(payload[i++]));
+
+  const auto field = [payload](size_t offset, size_t max) {
+    const char * start = reinterpret_cast<const char *>(payload) + offset;
+    return std::string(start, strnlen(start, max));
+  };
+
+  const std::string ssid = field(kSsidOffset, kSsidLen);
+  const std::string password = field(kPasswordOffset, kPasswordLen);
+
+  if (ssid.empty()) {
+    RCLCPP_WARN(rclcpp::get_logger(kLogger), "CMD_WIFI_CONFIG has an empty SSID — ignoring");
+    return;
   }
 
   std_msgs::msg::String msg;
