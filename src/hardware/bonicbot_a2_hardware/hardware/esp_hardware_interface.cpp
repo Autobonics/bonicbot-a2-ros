@@ -244,8 +244,17 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_configure(
       const std::string & ip = fields[3];
       std::memcpy(&packed[34], ip.data(), std::min<size_t>(ip.size(), 16));
 
-      std::lock_guard<std::mutex> lock(wifi_status_mutex_);
-      wifi_status_payload_ = std::move(packed);
+      {
+        std::lock_guard<std::mutex> lock(wifi_status_mutex_);
+        wifi_status_payload_ = std::move(packed);
+      }
+      // Push rather than wait to be polled. robot_app publishes here right
+      // after every successful nmcli join, and the ESP relays any payload-
+      // carrying CMD_WIFI_STATUS straight to the phone as a BLE notify — so
+      // this is what delivers "connected, and here is the new IP" without the
+      // app having to guess when to ask. The serial fd belongs to the control
+      // thread, so only flag it here; write() does the send.
+      wifi_status_push_pending_ = true;
     });
 
   {
@@ -523,6 +532,14 @@ hardware_interface::return_type EspHardwareInterface::write(
     if (!sendPacket(cdc_protocol::CMD_MATRIX_ACTION, action.data(), action.size())) {
       RCLCPP_WARN(rclcpp::get_logger(kLogger), "Face matrix command write failed");
     }
+  }
+
+  // Unprompted Wi-Fi status push — see wifi_status_push_pending_. Same
+  // fire-and-forget shape as the matrix action above: only on a fresh publish,
+  // never per-cycle.
+  if (wifi_status_push_pending_) {
+    wifi_status_push_pending_ = false;
+    replyWifiStatus();
   }
 
   return hardware_interface::return_type::OK;

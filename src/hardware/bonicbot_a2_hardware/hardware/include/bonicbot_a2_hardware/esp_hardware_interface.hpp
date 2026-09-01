@@ -207,6 +207,13 @@ private:
   std::vector<uint8_t> wifi_status_payload_;
   std::mutex wifi_status_mutex_;
 
+  /// Set when a FRESH /esp/wifi_status arrives, so write() pushes it to the ESP
+  /// unprompted instead of waiting to be polled. The ESP forwards any
+  /// CMD_WIFI_STATUS carrying a payload straight out as a BLE RESP_WIFI_STATUS
+  /// notify (firmware src/uart_ros.cpp), so this is what makes a successful
+  /// join — and the new IP — reach the phone on its own.
+  std::atomic<bool> wifi_status_push_pending_{false};
+
   /// Raw CMD_MATRIX_ACTION payload from /face/matrix_action — byte 0 is the
   /// action code, the rest is that action's own layout (spec §4). This is a
   /// dumb pipe: this repo doesn't interpret expressions, just forwards bytes.
