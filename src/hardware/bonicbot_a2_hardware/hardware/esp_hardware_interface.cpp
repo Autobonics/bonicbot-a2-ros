@@ -227,8 +227,24 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_configure(
         return;
       }
 
-      const std::string & connected = fields[0];
-      packed[0] = (connected == "1" || connected == "true" || connected == "True") ? 1 : 0;
+      // Tri-state, not a bool: WifiStatusPayload.status is 0 = idle/failed,
+      // 1 = connected, 2 = connecting (firmware include/protocol_defs.h).
+      // Collapsing it to 0/1 here would drop the "connecting" state robot_app
+      // sends the moment credentials arrive, which is what lets the tablet show
+      // progress during the ~15 s join instead of looking frozen. Legacy
+      // "true"/"True" still map to connected.
+      const std::string & state = fields[0];
+      if (state == "true" || state == "True") {
+        packed[0] = 1;
+      } else {
+        int parsed = 0;
+        try {
+          parsed = std::stoi(state);
+        } catch (const std::exception &) {
+          parsed = 0;
+        }
+        packed[0] = static_cast<uint8_t>(std::clamp(parsed, 0, 2));
+      }
 
       const std::string & ssid = fields[1];
       std::memcpy(&packed[1], ssid.data(), std::min<size_t>(ssid.size(), 32));
